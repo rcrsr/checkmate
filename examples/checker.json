@@ -1,0 +1,81 @@
+{
+  "environments": [
+    {
+      "name": "root",
+      "paths": ["."],
+      "checks": {
+        ".py": [
+          {
+            "name": "ruff format",
+            "command": "uv",
+            "args": ["run", "ruff", "format", "--check", "$FILE"],
+            "parser": "prettier",
+            "_auto": true
+          },
+          {
+            "name": "ruff check",
+            "command": "uv",
+            "args": ["run", "ruff", "check", "$FILE"],
+            "parser": "ruff",
+            "_auto": true
+          },
+          {
+            "name": "ty",
+            "command": "uv",
+            "args": ["run", "ty", "check", "$FILE"],
+            "parser": "ty",
+            "_auto": true
+          }
+        ],
+        ".ts,.tsx": [
+          {
+            "name": "prettier",
+            "command": "pnpm",
+            "args": ["exec", "prettier", "--check", "$FILE"],
+            "parser": "prettier",
+            "_auto": true
+          },
+          {
+            "name": "eslint",
+            "command": "pnpm",
+            "args": ["exec", "eslint", "$FILE"],
+            "parser": "eslint",
+            "_auto": true
+          },
+          {
+            "name": "tsc",
+            "command": "pnpm",
+            "args": ["exec", "tsc", "--noEmit", "$FILE"],
+            "parser": "tsc",
+            "_auto": true
+          }
+        ],
+        ".js,.jsx": [
+          {
+            "name": "prettier",
+            "command": "pnpm",
+            "args": ["exec", "prettier", "--check", "$FILE"],
+            "parser": "prettier",
+            "_auto": true
+          },
+          {
+            "name": "eslint",
+            "command": "pnpm",
+            "args": ["exec", "eslint", "$FILE"],
+            "parser": "eslint",
+            "_auto": true
+          }
+        ],
+        ".md,.json,.css,.html": [
+          {
+            "name": "prettier",
+            "command": "pnpm",
+            "args": ["exec", "prettier", "--check", "$FILE"],
+            "parser": "prettier",
+            "_auto": true
+          }
+        ]
+      }
+    }
+  ]
+}

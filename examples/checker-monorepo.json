@@ -1,0 +1,113 @@
+{
+  "environments": [
+    {
+      "name": "frontend",
+      "paths": ["apps/web", "packages/ui", "packages/shared"],
+      "checks": {
+        ".ts,.tsx": [
+          {
+            "name": "prettier",
+            "command": "pnpm",
+            "args": ["exec", "prettier", "--check", "$FILE"],
+            "parser": "prettier",
+            "_auto": true
+          },
+          {
+            "name": "eslint",
+            "command": "pnpm",
+            "args": ["exec", "eslint", "$FILE"],
+            "parser": "eslint",
+            "_auto": true
+          }
+        ],
+        ".css": [
+          {
+            "name": "prettier",
+            "command": "pnpm",
+            "args": ["exec", "prettier", "--check", "$FILE"],
+            "parser": "prettier",
+            "_auto": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "api",
+      "paths": ["services/api"],
+      "checks": {
+        ".py": [
+          {
+            "name": "ruff format",
+            "command": "uv",
+            "args": ["run", "ruff", "format", "--check", "$FILE"],
+            "parser": "prettier",
+            "_auto": true
+          },
+          {
+            "name": "ruff check",
+            "command": "uv",
+            "args": ["run", "ruff", "check", "$FILE"],
+            "parser": "ruff",
+            "_auto": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "worker",
+      "paths": ["services/worker"],
+      "checks": {
+        ".go": [
+          {
+            "name": "golangci-lint",
+            "command": "golangci-lint",
+            "args": ["run", "--out-format", "line-number", "$FILE"],
+            "parser": {
+              "pattern": ":(?<line>\\d+):(?<column>\\d+):\\s*(?<message>.+)",
+              "severity": "error"
+            },
+            "_auto": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "rust-lib",
+      "paths": ["packages/rust-lib"],
+      "checks": {
+        ".rs": [
+          {
+            "name": "cargo fmt",
+            "command": "cargo",
+            "args": ["fmt", "--check", "--", "$FILE"],
+            "parser": "prettier",
+            "_auto": true
+          },
+          {
+            "name": "cargo clippy",
+            "command": "cargo",
+            "args": ["clippy", "--", "-D", "warnings", "$FILE"],
+            "parser": "generic",
+            "_auto": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "root",
+      "paths": ["."],
+      "exclude": ["apps/**", "packages/**", "services/**"],
+      "checks": {
+        ".md,.json": [
+          {
+            "name": "prettier",
+            "command": "pnpm",
+            "args": ["exec", "prettier", "--check", "$FILE"],
+            "parser": "prettier",
+            "_auto": true
+          }
+        ]
+      }
+    }
+  ]
+}

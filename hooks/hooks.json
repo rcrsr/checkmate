@@ -1,3 +1,28 @@
 {
-  "hooks": []
+  "hooks": [
+    {
+      "matcher": {
+        "event": "PostToolUse",
+        "tool_name": "Edit"
+      },
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node $PLUGIN_DIR/hooks/check-code-quality.mjs"
+        }
+      ]
+    },
+    {
+      "matcher": {
+        "event": "PostToolUse",
+        "tool_name": "Write"
+      },
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node $PLUGIN_DIR/hooks/check-code-quality.mjs"
+        }
+      ]
+    }
+  ]
 }
