@@ -108,9 +108,14 @@ function validateChecks(checks, envName) {
   }
 
   for (const [ext, checkList] of Object.entries(checks)) {
-    // Extension should start with .
-    if (!ext.startsWith(".")) {
-      errors.push(`environments[${envName}].checks: key "${ext}" should start with "."`);
+    // Validate extension key (supports comma-delimited like ".ts,.tsx")
+    const extensions = ext.split(",").map((e) => e.trim());
+    for (const extension of extensions) {
+      if (!extension.startsWith(".")) {
+        errors.push(
+          `environments[${envName}].checks: extension "${extension}" in key "${ext}" should start with "."`
+        );
+      }
     }
 
     if (!Array.isArray(checkList)) {
