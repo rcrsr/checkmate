@@ -42,8 +42,14 @@ find . -type f -name "*.js" -o -name "*.jsx" | head -1
 find . -type f -name "*.rs" | head -1
 find . -type f -name "*.go" | head -1
 
+# Check for formatter-compatible files
+find . -type f \( -name "*.json" -o -name "*.md" -o -name "*.yaml" -o -name "*.yml" \) | head -1
+
 # Check for package managers and config files
 ls package.json pyproject.toml Cargo.toml go.mod 2>/dev/null
+
+# Detect build/temp directories to exclude
+ls -d dist build out .next .nuxt coverage __pycache__ .pytest_cache target 2>/dev/null
 ```
 
 ### Step 2: Detect All Environments
@@ -87,9 +93,11 @@ Using the detected invocation pattern, check which tools are available:
 ```bash
 <exec> prettier --version 2>/dev/null && echo "prettier available"
 <exec> eslint --version 2>/dev/null && echo "eslint available"
-<exec> tsc --version 2>/dev/null && echo "tsc available"
 <exec> biome --version 2>/dev/null && echo "biome available"
+<exec> tsc-files --version 2>/dev/null && echo "tsc-files available"
 ```
+
+**Note:** Avoid `tsc` - it checks the entire project on every file change. Use `tsc-files` (per-file) or `eslint` with `@typescript-eslint` instead.
 
 **Python tools** (using detected exec pattern):
 ```bash
@@ -153,6 +161,12 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
 - `checks` - Object mapping file extensions to check arrays
 - `$FILE` - Placeholder replaced with actual file path at runtime
 
+**Default excludes:** Always exclude build artifacts and temp directories that exist in the project:
+- JavaScript/TypeScript: `dist/**`, `build/**`, `out/**`, `.next/**`, `.nuxt/**`, `coverage/**`
+- Python: `__pycache__/**`, `.pytest_cache/**`, `.venv/**`, `*.egg-info/**`
+- Rust: `target/**`
+- General: `node_modules/**` (already excluded by most tools)
+
 **Matching rule:** First environment in the array that matches wins. Put specific environments before general ones.
 
 **Simple project (single environment):**
@@ -162,6 +176,7 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
     {
       "name": "root",
       "paths": ["."],
+      "exclude": ["dist/**", "coverage/**"],
       "checks": {
         ".ts,.tsx": [
           { "name": "prettier", "command": "pnpm", "args": ["exec", "prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true }
@@ -171,6 +186,8 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
   ]
 }
 ```
+
+**Note:** Only include excludes for directories that actually exist in the project.
 
 **Monorepo (multiple environments):**
 ```json
@@ -216,8 +233,8 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
 |--------|---------|---------------|
 | `ruff` | Ruff linter | `path:line:col: CODE message` |
 | `ty` | ty type checker | Multi-line Rust-style errors |
-| `eslint` | ESLint | `path:line:col severity message rule` |
-| `tsc` | TypeScript compiler | `path(line,col): error TScode: message` |
+| `eslint` | ESLint (with `@typescript-eslint` for type checks) | `path:line:col severity message rule` |
+| `tsc-files` | tsc-files (per-file TypeScript) | `path(line,col): error TScode: message` |
 | `biome` | Biome | `path:line:col rule message` |
 | `prettier` | Any format checker | Pass/fail only (non-empty = fail) |
 | `generic` | Fallback | Returns raw output truncated |
@@ -292,6 +309,7 @@ Go (direct invocation):
     {
       "name": "root",
       "paths": ["."],
+      "exclude": ["__pycache__/**", ".pytest_cache/**", ".venv/**"],
       "checks": {
         ".py": [
           { "name": "ruff format", "command": "uv", "args": ["run", "ruff", "format", "--check", "$FILE"], "parser": "prettier", "_auto": true },
@@ -311,17 +329,23 @@ Go (direct invocation):
     {
       "name": "root",
       "paths": ["."],
+      "exclude": ["dist/**", "build/**", "coverage/**"],
       "checks": {
         ".ts,.tsx": [
           { "name": "prettier", "command": "npx", "args": ["prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true },
           { "name": "eslint", "command": "npx", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true },
-          { "name": "tsc", "command": "npx", "args": ["tsc", "--noEmit"], "parser": "tsc", "_auto": true }
+          { "name": "tsc-files", "command": "npx", "args": ["tsc-files", "--noEmit", "$FILE"], "parser": "tsc-files", "_auto": true }
+        ],
+        ".json,.md": [
+          { "name": "prettier", "command": "npx", "args": ["prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true }
         ]
       }
     }
   ]
 }
 ```
+
+**Note:** For TypeScript type checking, use `tsc-files` (checks single files) instead of `tsc` (checks entire project). Alternatively, configure `eslint` with `@typescript-eslint` for type-aware linting.
 
 ### Step 5: Present and Confirm
 
@@ -334,11 +358,18 @@ Show the user:
 - **biome vs prettier+eslint:** biome is faster but less configurable. Use prettier+eslint for existing configs.
 - **maxDiagnostics:** 5 is good default. Increase to 10 for strict projects. Set to 1 for slow tools.
 - **Check order:** Format checks first, then lint, then type check (fastest to slowest).
+- **Related file types:** Formatters like prettier handle more than code. Recommend adding checks for:
+  - `.json` - package.json, tsconfig.json, config files
+  - `.md` - README, documentation
+  - `.yaml,.yml` - CI configs, docker-compose
+  - `.css,.scss` - stylesheets
+  - `.html` - templates
 
 Ask the user:
 - Are there additional checks they want to add?
 - Are there file types or tools we missed?
 - Any custom scripts or project-specific checks?
+- Should test files be included or excluded? (e.g., `"tests/**"`, `"**/*.test.ts"`)
 
 For unfamiliar tools, offer to use the `checker:configure-tool` agent to analyze output and build a parser.
 
@@ -351,23 +382,9 @@ Ensure the `.claude/` directory exists:
 mkdir -p .claude
 ```
 
-Then write the configuration file.
+Then write the configuration file. The validation hook runs automatically and flags any schema errors.
 
-### Step 7: Validate Configuration
-
-Run the validation script to check for errors:
-
-```bash
-node $PLUGIN_DIR/hooks/validate-config.mjs .claude/checker.json
-```
-
-If validation fails, fix the errors before proceeding. Common issues:
-- Missing `$FILE` in args
-- Invalid parser name
-- Missing required fields (paths, checks)
-- Invalid regex in custom parser
-
-### Step 8: Review Configuration
+### Step 7: Review Configuration
 
 **Always ask the user to review the generated config before finishing:**
 
@@ -386,7 +403,7 @@ Please review the configuration above. Does everything look correct?
 Reply with any changes needed, or confirm to proceed.
 ```
 
-### Step 9: Test Configuration
+### Step 8: Test Configuration
 
 After user confirms, test with a sample file:
 ```bash

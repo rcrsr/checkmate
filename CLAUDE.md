@@ -8,7 +8,9 @@ See [README.md](README.md) for usage and configuration.
 
 ```
 hooks/
-├── hooks.json               # PostToolUse bindings
+└── hooks.json               # PostToolUse bindings
+
+scripts/
 ├── check-code-quality.mjs   # Runs checks, parses output
 └── validate-config.mjs      # Schema validator
 
@@ -34,14 +36,22 @@ agents/
 ```bash
 # Load plugin
 claude --plugin-dir /path/to/checker
-
-# Validate config
-node hooks/validate-config.mjs .claude/checker.json
-
-# Simulate hook
-echo '{"tool_input": {"file_path": "test.py"}}' | node hooks/check-code-quality.mjs
 ```
+
+Config validation runs automatically when `.claude/checker.json` is edited.
+
+## Tool Selection
+
+Avoid tools that require whole-project analysis on every file change:
+
+| Avoid | Use Instead | Reason |
+|-------|-------------|--------|
+| `tsc` | `tsc-files` or `eslint` with `@typescript-eslint` | tsc checks entire project; alternatives check single files |
+| `mypy` (whole project) | `mypy --follow-imports=skip` | Limits scope to edited file |
+| `cargo check` | `clippy` on single file | Faster incremental feedback |
+
+The hook runs after every Edit/Write. Tools taking 2+ seconds per invocation degrade the editing experience.
 
 ## Adding Parsers
 
-Add to `parsers` object in `check-code-quality.mjs` and `PREDEFINED_PARSERS` array in `validate-config.mjs`.
+Add to `parsers` object in `scripts/check-code-quality.mjs` and `PREDEFINED_PARSERS` array in `scripts/validate-config.mjs`.

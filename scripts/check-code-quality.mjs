@@ -46,19 +46,13 @@ import * as path from "node:path";
  *   Named groups: line, column, message, rule, severity (all optional)
  */
 
-function findProjectRoot(startPath) {
-  let current = path.resolve(startPath);
-  while (current !== "/") {
-    if (fs.existsSync(path.join(current, ".git"))) {
-      return current;
-    }
-    current = path.dirname(current);
-  }
-  return null;
+function getProjectRoot() {
+  // Use CLAUDE_PROJECT_DIR env var set by Claude Code
+  return process.env.CLAUDE_PROJECT_DIR || null;
 }
 
-function loadConfig(filePath) {
-  const projectRoot = findProjectRoot(path.dirname(filePath));
+function loadConfig() {
+  const projectRoot = getProjectRoot();
   if (!projectRoot) {
     return { config: null, projectRoot: null };
   }
@@ -571,7 +565,14 @@ async function main() {
   }
 
   // Load config
-  const { config, projectRoot } = loadConfig(filePath);
+  const { config, projectRoot } = loadConfig();
+  if (!projectRoot) {
+    outputJson({
+      systemMessage: "CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment",
+    });
+    process.exit(0);
+  }
+
   if (!config) {
     outputJson({
       systemMessage: "No checker.json found - run /checker:create to configure",

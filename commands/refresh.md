@@ -57,8 +57,10 @@ Using the detected invocation pattern, check for tools that aren't in the config
 <exec> prettier --version 2>/dev/null && echo "prettier available"
 <exec> eslint --version 2>/dev/null && echo "eslint available"
 <exec> biome --version 2>/dev/null && echo "biome available"
-<exec> tsc --version 2>/dev/null && echo "tsc available"
+<exec> tsc-files --version 2>/dev/null && echo "tsc-files available"
 ```
+
+**Note:** Avoid `tsc` - it checks the entire project on every file change. Use `tsc-files` (per-file) or `eslint` with `@typescript-eslint` instead.
 
 **Python** (using detected exec pattern):
 ```bash
@@ -80,11 +82,16 @@ Compare against config - identify tools present but not configured.
 Find file types in the project:
 
 ```bash
+# Code files
 find . -type f \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.go" -o -name "*.rs" \) | \
+  sed 's/.*\./\./' | sort | uniq -c | sort -rn
+
+# Formatter-compatible files
+find . -type f \( -name "*.json" -o -name "*.md" -o -name "*.yaml" -o -name "*.yml" -o -name "*.css" \) | \
   sed 's/.*\./\./' | sort | uniq -c | sort -rn
 ```
 
-Report file types that exist but have no checks configured.
+Report file types that exist but have no checks configured. Include formatter-compatible files if prettier or biome is available.
 
 ### Step 6: Present Findings
 
@@ -99,6 +106,12 @@ Show the user a summary:
 - Remove checks for missing tools: [list]
 - Add checks for new tools: [list with proposed config]
 - Add coverage for file types: [list]
+
+**Related file types:** If prettier or biome is configured, suggest extending to:
+- `.json` - package.json, tsconfig.json, config files
+- `.md` - README, documentation
+- `.yaml,.yml` - CI configs, docker-compose
+- `.css,.scss` - stylesheets (if present in project)
 
 ### Step 7: Apply Updates
 
