@@ -1,7 +1,7 @@
 {
   "name": "checker",
   "description": "Automated code quality checks on file edits with configurable linters and formatters",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": {
     "name": "Andre Bremer",
     "url": "https://andrebremer.com"

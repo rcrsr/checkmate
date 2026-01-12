@@ -584,7 +584,8 @@ async function main() {
   const checks = getChecksForFile(config, filePath, projectRoot);
 
   if (checks.length === 0) {
-    outputJson({ systemMessage: `No checks configured for ${ext}` });
+    const fileType = ext || path.basename(filePath);
+    outputJson({ systemMessage: `No checks configured for ${fileType} files` });
     process.exit(0);
   }
 
