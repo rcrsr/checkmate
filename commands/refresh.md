@@ -1,3 +1,8 @@
+---
+description: Sync checker configuration with installed tools
+argument-hint: ""
+---
+
 # refresh
 
 Maintain and update the existing `.claude/checker.json` configuration.

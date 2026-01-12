@@ -1,3 +1,8 @@
+---
+description: Auto-discover tools and generate checker configuration
+argument-hint: ""
+---
+
 # create
 
 Configure code quality checks for this project by discovering available tools and creating `.claude/checker.json`.

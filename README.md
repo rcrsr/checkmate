@@ -19,6 +19,11 @@ Automated code quality enforcement for Claude Code. Runs your linters, formatter
 ## Installation
 
 ```bash
+# From marketplace
+/plugin marketplace add rcrsr/claude-plugins
+/plugin install checker@rcrsr
+
+# Or load locally
 claude --plugin-dir /path/to/checker
 ```
 

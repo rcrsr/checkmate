@@ -1,3 +1,9 @@
+---
+name: configure-tool
+description: Analyzes linting/formatting tool output and creates parser configurations for the checker plugin
+tools: Bash, Read, Glob, Grep
+---
+
 # configure-tool
 
 Analyze a linting/formatting tool's output and create a parser configuration.

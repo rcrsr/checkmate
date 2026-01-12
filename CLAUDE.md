@@ -1,57 +1,57 @@
 # checker
 
-Code quality checks plugin. Runs linters/formatters after Edit/Write, blocks on errors.
+Runs linters and formatters after Edit/Write operations. Blocks on errors.
 
-See [README.md](README.md) for usage and configuration.
+## Development
+
+```bash
+claude --plugin-dir /path/to/checker
+```
 
 ## Architecture
 
 ```
 hooks/
-└── hooks.json               # PostToolUse bindings
-
+└── hooks.json               # PostToolUse bindings (Edit|Write)
 scripts/
-├── check-code-quality.mjs   # Runs checks, parses output
-└── validate-config.mjs      # Schema validator
-
+├── check-code-quality.mjs   # Core hook: runs checks, parses output
+└── validate-config.mjs      # Schema validator for checker.json
 commands/
-├── create.md                # /checker:create
-└── refresh.md               # /checker:refresh
-
+├── create.md                # /checker:create - generate config
+└── refresh.md               # /checker:refresh - sync with installed tools
 agents/
-├── detect-environment.md    # Package manager detection
-└── configure-tool.md        # Parser builder for unknown tools
+├── detect-environment.md    # Detects package managers (pnpm/npm/uv/cargo)
+└── configure-tool.md        # Builds parsers for unknown tools
 ```
 
 ## Hook Flow
 
 1. PostToolUse fires on Edit/Write
-2. Loads `.claude/checker.json`, finds matching environment
+2. Loads `.claude/checker.json`, matches file to environment
 3. Runs checks via spawnSync, parses output
-4. Blocks if errors found, passes silently if clean
+4. Blocks if errors found; passes silently if clean
 5. Self-validates when `.claude/checker.json` is edited
 
-## Testing
+## Key Files
 
-```bash
-# Load plugin
-claude --plugin-dir /path/to/checker
-```
-
-Config validation runs automatically when `.claude/checker.json` is edited.
-
-## Tool Selection
-
-Avoid tools that require whole-project analysis on every file change:
-
-| Avoid | Use Instead | Reason |
-|-------|-------------|--------|
-| `tsc` | `tsc-files` or `eslint` with `@typescript-eslint` | tsc checks entire project; alternatives check single files |
-| `mypy` (whole project) | `mypy --follow-imports=skip` | Limits scope to edited file |
-| `cargo check` | `clippy` on single file | Faster incremental feedback |
-
-The hook runs after every Edit/Write. Tools taking 2+ seconds per invocation degrade the editing experience.
+| File | Responsibility |
+|------|----------------|
+| `scripts/check-code-quality.mjs` | Main hook logic, parser implementations |
+| `scripts/validate-config.mjs` | JSON schema validation |
 
 ## Adding Parsers
 
-Add to `parsers` object in `scripts/check-code-quality.mjs` and `PREDEFINED_PARSERS` array in `scripts/validate-config.mjs`.
+1. Add parser function to `parsers` object in `check-code-quality.mjs`
+2. Add parser name to `PREDEFINED_PARSERS` array in `validate-config.mjs`
+
+## Tool Selection
+
+Avoid whole-project tools that run on every file change:
+
+| Avoid | Use Instead |
+|-------|-------------|
+| `tsc` | `tsc-files` or `eslint` with `@typescript-eslint` |
+| `mypy` | `mypy --follow-imports=skip` |
+| `cargo check` | `clippy` on single file |
+
+Target: <2 seconds per tool invocation.

@@ -1,3 +1,9 @@
+---
+name: detect-environment
+description: Detects package managers and environment managers in a project, including nested monorepo setups
+tools: Bash, Read
+---
+
 # detect-environment
 
 Detect all package managers and environment managers in a project, including nested setups in monorepos.

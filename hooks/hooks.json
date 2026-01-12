@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/check-code-quality.mjs"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/check-code-quality.mjs\""
           }
         ]
       }
