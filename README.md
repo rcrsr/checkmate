@@ -1,39 +1,39 @@
-# checker
+# Checkmate
 
-Automated code quality enforcement for Claude Code. Runs your linters, formatters, and type checkers after every edit—catches errors before they compound.
+Automated code quality enforcement for Claude Code. Runs your linters, formatters, and type checkers after every edit—catches errors before they compound. Zero configuration needed to get started. Discovers and configures your tools automatically within seconds. Perfect for monorepos with diverse toolchains.
 
-## Why checker?
+## Why Checkmate?
 
 **Immediate feedback loop.** Claude edits a file → checks run automatically → errors block until fixed. No context lost. No forgotten linting steps.
 
 **Monorepo-native.** Different tools per directory. Python API with uv, TypeScript frontend with pnpm, Go worker with golangci-lint—all in one config.
 
-**Zero-config start.** Run `/checker:create` and it discovers your toolchain: detects package managers (pnpm/npm/yarn/bun), environment managers (uv/poetry/pipenv/conda), and available linters.
+**Zero-config start.** Run `/checkmate:init` and it discovers your toolchain: detects package managers (pnpm/npm/yarn/bun), environment managers (uv/poetry/pipenv/conda), and available linters.
 
-**Works with any tool.** Predefined parsers for common tools. Custom regex parsers for everything else. If it outputs errors, checker can parse it.
+**Works with any tool.** Predefined parsers for common tools. Custom regex parsers for everything else. If it outputs errors, checkmate can parse it.
 
 **Protects your customizations.** Auto-discovered checks are marked `_auto`. User-added checks are never modified by refresh. Your tweaks survive updates.
 
-**Self-validating config.** Edit `.claude/checker.json` and the hook validates the schema instantly. Malformed configs blocked before they break anything.
+**Self-validating config.** Edit `.claude/checkmate.json` and the hook validates the schema instantly. Malformed configs blocked before they break anything.
 
 ## Installation
 
 ```bash
 # From marketplace
 /plugin marketplace add rcrsr/claude-plugins
-/plugin install checker@rcrsr
+/plugin install checkmate@rcrsr
 
 # Or load locally
-claude --plugin-dir /path/to/checker
+claude --plugin-dir /path/to/checkmate
 ```
 
 ## Quick Start
 
 ```
-/checker:create
+/checkmate:init
 ```
 
-Discovers your tools, creates `.claude/checker.json`. Done.
+Discovers your tools, creates `.claude/checkmate.json`. Done.
 
 ## Configuration
 
@@ -105,7 +105,7 @@ First matching environment wins. Specific paths before general.
 | `args` | Yes | Arguments; `$FILE` = file path |
 | `parser` | No | Predefined name or regex object |
 | `maxDiagnostics` | No | Max errors shown (default: 5) |
-| `_auto` | No | Managed by `/checker:refresh` |
+| `_auto` | No | Managed by `/checkmate:refresh` |
 
 ### Custom Parser
 
@@ -141,13 +141,13 @@ Named groups: `line`, `column`, `message`, `rule`, `severity`.
 
 | Command | Purpose |
 |---------|---------|
-| `/checker:create` | Auto-discover tools, generate config |
-| `/checker:refresh` | Sync config with installed tools |
+| `/checkmate:init` | Auto-discover tools, generate config |
+| `/checkmate:refresh` | Sync config with installed tools |
 
 ## Validation
 
 Config auto-validates on edit. Manual check:
 
 ```bash
-node hooks/validate-config.mjs .claude/checker.json
+node hooks/validate-config.mjs .claude/checkmate.json
 ```

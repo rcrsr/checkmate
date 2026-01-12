@@ -1,5 +1,5 @@
 {
-  "name": "checker",
+  "name": "checkmate",
   "description": "Automated code quality checks on file edits with configurable linters and formatters",
   "version": "1.0.0",
   "author": {

@@ -2,7 +2,7 @@
 /**
  * PostToolUse hook: Check formatting, linting, and types for edited files
  *
- * Reads checker.json from .claude/ directory to determine which commands
+ * Reads checkmate.json from .claude/ directory to determine which commands
  * to run for each file type. Config-driven approach allows users to adapt
  * checks to their specific toolchain.
  *
@@ -57,7 +57,7 @@ function loadConfig() {
     return { config: null, projectRoot: null };
   }
 
-  const configPath = path.join(projectRoot, ".claude", "checker.json");
+  const configPath = path.join(projectRoot, ".claude", "checkmate.json");
   if (!fs.existsSync(configPath)) {
     return { config: null, projectRoot };
   }
@@ -71,7 +71,7 @@ function loadConfig() {
 }
 
 /**
- * Validate a checker.json config file.
+ * Validate a checkmate.json config file.
  * Runs the validate-config.mjs script and returns results.
  */
 function validateConfigFile(configPath) {
@@ -543,27 +543,6 @@ async function main() {
     process.exit(0);
   }
 
-  // Self-check: validate checker.json when it's edited
-  if (filePath.endsWith(".claude/checker.json")) {
-    const validationResult = validateConfigFile(filePath);
-    if (!validationResult.valid) {
-      const errorReport = {
-        file: filePath,
-        valid: false,
-        errorCount: validationResult.errors.length,
-        errors: validationResult.errors,
-      };
-      outputJson({
-        decision: "block",
-        reason: `<checker-config-validation file="${filePath}">\n${JSON.stringify(errorReport, null, 2)}\n</checker-config-validation>`,
-        systemMessage: `${filePath} has ${validationResult.errors.length} validation error(s) - fix before continuing`,
-      });
-      process.exit(0);
-    }
-    outputJson({ systemMessage: `${filePath} is valid` });
-    process.exit(0);
-  }
-
   // Load config
   const { config, projectRoot } = loadConfig();
   if (!projectRoot) {
@@ -573,27 +552,40 @@ async function main() {
     process.exit(0);
   }
 
-  if (!config) {
+  const isConfigFile = filePath.endsWith(".claude/checkmate.json");
+
+  // No config and not editing the config file - nothing to do
+  if (!config && !isConfigFile) {
     outputJson({
-      systemMessage: "No checker.json found - run /checker:create to configure",
+      systemMessage: "No checkmate.json found - run /checkmate:init to configure",
     });
-    process.exit(0);
-  }
-
-  const ext = path.extname(filePath);
-  const checks = getChecksForFile(config, filePath, projectRoot);
-
-  if (checks.length === 0) {
-    const fileType = ext || path.basename(filePath);
-    outputJson({ systemMessage: `No checks configured for ${fileType} files` });
     process.exit(0);
   }
 
   const diagnostics = [];
 
-  for (const check of checks) {
-    const checkDiagnostics = runCheck(check, filePath, projectRoot);
-    diagnostics.push(...checkDiagnostics);
+  // Run configured checks (if config exists and checks are configured)
+  if (config) {
+    const checks = getChecksForFile(config, filePath, projectRoot);
+    for (const check of checks) {
+      const checkDiagnostics = runCheck(check, filePath, projectRoot);
+      diagnostics.push(...checkDiagnostics);
+    }
+  }
+
+  // Self-check: validate checkmate.json schema when it's edited
+  if (isConfigFile) {
+    const validationResult = validateConfigFile(filePath);
+    if (!validationResult.valid) {
+      for (const err of validationResult.errors) {
+        diagnostics.push({
+          message: err.message,
+          rule: err.path || "schema",
+          source: "checkmate-schema",
+          severity: "error",
+        });
+      }
+    }
   }
 
   const fileName = path.basename(filePath);
@@ -610,6 +602,18 @@ async function main() {
         ? `Quality check failed for ${fileName}`
         : `Quality warnings for ${fileName}`,
     });
+    process.exit(0);
+  }
+
+  // Determine if any checks ran
+  const checksRan = config
+    ? getChecksForFile(config, filePath, projectRoot).length > 0
+    : false;
+
+  if (!checksRan && !isConfigFile) {
+    const ext = path.extname(filePath);
+    const fileType = ext || path.basename(filePath);
+    outputJson({ systemMessage: `No checks configured for ${fileType} files` });
     process.exit(0);
   }
 

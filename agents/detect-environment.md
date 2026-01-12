@@ -8,7 +8,7 @@ tools: Bash, Read
 
 Detect all package managers and environment managers in a project, including nested setups in monorepos.
 
-This agent is called by `/checker:create`, `/checker:refresh`, and `checker:configure-tool` to determine the correct invocation patterns for quality tools.
+This agent is called by `/checkmate:init`, `/checkmate:refresh`, and `checkmate:configure-tool` to determine the correct invocation patterns for quality tools.
 
 ## Instructions
 
@@ -144,7 +144,7 @@ If `apps/web` has pnpm and `apps/mobile` has yarn, both are separate environment
 
 ### Root + nested (monorepo with workspaces)
 
-Include both root and nested environments. The checker will use the most specific match for each file:
+Include both root and nested environments. The checkmate will use the most specific match for each file:
 
 ```json
 {

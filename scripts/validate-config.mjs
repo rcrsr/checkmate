@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Validate checker.json configuration files.
+ * Validate checkmate.json configuration files.
  *
  * Usage:
- *   node validate-config.mjs <path-to-checker.json>
- *   node validate-config.mjs --stdin < checker.json
+ *   node validate-config.mjs <path-to-checkmate.json>
+ *   node validate-config.mjs --stdin < checkmate.json
  *
  * Exit codes:
  *   0 = valid
@@ -262,10 +262,10 @@ async function main() {
     configContent = data;
     filePath = "<stdin>";
   } else if (args.includes("--help") || args.includes("-h")) {
-    console.log(`Usage: node validate-config.mjs <path-to-checker.json>
-       node validate-config.mjs --stdin < checker.json
+    console.log(`Usage: node validate-config.mjs <path-to-checkmate.json>
+       node validate-config.mjs --stdin < checkmate.json
 
-Validates a checker.json configuration file.
+Validates a checkmate.json configuration file.
 
 Exit codes:
   0 = valid
@@ -286,15 +286,15 @@ Exit codes:
       process.exit(2);
     }
   } else {
-    // Try to find checker.json in current directory
-    const defaultPath = ".claude/checker.json";
+    // Try to find checkmate.json in current directory
+    const defaultPath = ".claude/checkmate.json";
     if (fs.existsSync(defaultPath)) {
       filePath = defaultPath;
       configContent = fs.readFileSync(filePath, "utf-8");
     } else {
-      console.error("Usage: node validate-config.mjs <path-to-checker.json>");
-      console.error("       node validate-config.mjs --stdin < checker.json");
-      console.error("\nNo checker.json found in current directory.");
+      console.error("Usage: node validate-config.mjs <path-to-checkmate.json>");
+      console.error("       node validate-config.mjs --stdin < checkmate.json");
+      console.error("\nNo checkmate.json found in current directory.");
       process.exit(2);
     }
   }

@@ -1,11 +1,11 @@
-# checker
+# checkmate
 
 Runs linters and formatters after Edit/Write operations. Blocks on errors.
 
 ## Development
 
 ```bash
-claude --plugin-dir /path/to/checker
+claude --plugin-dir /path/to/checkmate
 ```
 
 ## Architecture
@@ -15,10 +15,10 @@ hooks/
 └── hooks.json               # PostToolUse bindings (Edit|Write)
 scripts/
 ├── check-code-quality.mjs   # Core hook: runs checks, parses output
-└── validate-config.mjs      # Schema validator for checker.json
+└── validate-config.mjs      # Schema validator for checkmate.json
 commands/
-├── create.md                # /checker:create - generate config
-└── refresh.md               # /checker:refresh - sync with installed tools
+├── init.md                  # /checkmate:init - generate config
+└── refresh.md               # /checkmate:refresh - sync with installed tools
 agents/
 ├── detect-environment.md    # Detects package managers (pnpm/npm/uv/cargo)
 └── configure-tool.md        # Builds parsers for unknown tools
@@ -27,10 +27,10 @@ agents/
 ## Hook Flow
 
 1. PostToolUse fires on Edit/Write
-2. Loads `.claude/checker.json`, matches file to environment
+2. Loads `.claude/checkmate.json`, matches file to environment
 3. Runs checks via spawnSync, parses output
 4. Blocks if errors found; passes silently if clean
-5. Self-validates when `.claude/checker.json` is edited
+5. Self-validates when `.claude/checkmate.json` is edited
 
 ## Key Files
 

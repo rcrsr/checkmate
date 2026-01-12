@@ -1,11 +1,11 @@
 ---
-description: Auto-discover tools and generate checker configuration
+description: Auto-discover tools and generate checkmate configuration
 argument-hint: ""
 ---
 
-# create
+# init
 
-Configure code quality checks for this project by discovering available tools and creating `.claude/checker.json`.
+Configure code quality checks for this project by discovering available tools and creating `.claude/checkmate.json`.
 
 ## Instructions
 
@@ -16,21 +16,21 @@ You are helping the user set up automated code quality checks. Follow this proce
 First, check if a config already exists:
 
 ```bash
-ls -la .claude/checker.json 2>/dev/null
+ls -la .claude/checkmate.json 2>/dev/null
 ```
 
 **If config exists, STOP and warn the user:**
 
 ```
-A checker configuration already exists at .claude/checker.json
+A checkmate configuration already exists at .claude/checkmate.json
 
-Running /checker:create will delete the existing config and create a new one.
-If you want to update the existing config, run /checker:refresh instead.
+Running /checkmate:init will delete the existing config and create a new one.
+If you want to update the existing config, run /checkmate:refresh instead.
 
 Do you want to proceed and replace the existing configuration? (yes/no)
 ```
 
-Only proceed if user explicitly confirms. If they say no, suggest `/checker:refresh`.
+Only proceed if user explicitly confirms. If they say no, suggest `/checkmate:refresh`.
 
 ### Step 1: Discover Project Structure
 
@@ -59,7 +59,7 @@ ls -d dist build out .next .nuxt coverage __pycache__ .pytest_cache target 2>/de
 
 ### Step 2: Detect All Environments
 
-Use the `checker:detect-environment` agent to scan for all package managers, including nested setups in monorepos.
+Use the `checkmate:detect-environment` agent to scan for all package managers, including nested setups in monorepos.
 
 The agent returns an array of environments:
 ```json
@@ -132,7 +132,7 @@ command -v staticcheck && staticcheck --version
 
 ### Step 4: Build Configuration
 
-Based on discovered tools, file types, and **detected invocation pattern**, propose a `checker.json` configuration.
+Based on discovered tools, file types, and **detected invocation pattern**, propose a `checkmate.json` configuration.
 
 **Schema (array format):**
 
@@ -260,11 +260,11 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
 
 Named groups: `line`, `column`, `message`, `rule`, `severity` (all optional).
 
-For unfamiliar tools, use the `checker:configure-tool` agent to analyze output and build a regex.
+For unfamiliar tools, use the `checkmate:configure-tool` agent to analyze output and build a regex.
 
 **Common configurations by environment:**
 
-All auto-discovered checks include `"_auto": true` so `/checker:refresh` can manage them.
+All auto-discovered checks include `"_auto": true` so `/checkmate:refresh` can manage them.
 
 Python (adapt runner to detected environment):
 ```json
@@ -376,11 +376,11 @@ Ask the user:
 - Any custom scripts or project-specific checks?
 - Should test files be included or excluded? (e.g., `"tests/**"`, `"**/*.test.ts"`)
 
-For unfamiliar tools, offer to use the `checker:configure-tool` agent to analyze output and build a parser.
+For unfamiliar tools, offer to use the `checkmate:configure-tool` agent to analyze output and build a parser.
 
 ### Step 6: Write Configuration
 
-After user confirmation, create `.claude/checker.json` with the agreed configuration.
+After user confirmation, create `.claude/checkmate.json` with the agreed configuration.
 
 Ensure the `.claude/` directory exists:
 ```bash
@@ -393,7 +393,7 @@ Then write the configuration file. The validation hook runs automatically and fl
 
 **Always ask the user to review the generated config before finishing:**
 
-Show the user the complete `.claude/checker.json` and ask them to verify:
+Show the user the complete `.claude/checkmate.json` and ask them to verify:
 - Are the environment paths correct for their project structure?
 - Are the invocation patterns correct (`pnpm exec` vs `npx` vs `uv run`)?
 - Are the file extensions correctly grouped?
@@ -418,7 +418,7 @@ find . -name "*.py" -o -name "*.ts" | head -1
 
 Run one of the configured commands manually to verify it works.
 
-Inform the user that the checker hook will now run automatically on file edits. Suggest running `/checker:refresh` periodically to keep the config up to date.
+Inform the user that the checkmate hook will now run automatically on file edits. Suggest running `/checkmate:refresh` periodically to keep the config up to date.
 
 ## Notes
 

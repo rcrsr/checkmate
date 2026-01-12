@@ -1,6 +1,6 @@
 ---
 name: configure-tool
-description: Analyzes linting/formatting tool output and creates parser configurations for the checker plugin
+description: Analyzes linting/formatting tool output and creates parser configurations for the checkmate plugin
 tools: Bash, Read, Glob, Grep
 ---
 
@@ -8,11 +8,11 @@ tools: Bash, Read, Glob, Grep
 
 Analyze a linting/formatting tool's output and create a parser configuration.
 
-This agent creates parser configs for use with the checker plugin. Run `/checker:create` after to integrate the config.
+This agent creates parser configs for use with the checkmate plugin. Run `/checkmate:init` after to integrate the config.
 
 ## Instructions
 
-You are helping configure a code quality tool for the checker plugin. Your goal is to:
+You are helping configure a code quality tool for the checkmate plugin. Your goal is to:
 1. Run the tool on a sample file to capture its output format
 2. Analyze the output structure
 3. Create a parser config (predefined or custom regex)
@@ -151,4 +151,4 @@ Show the user:
 
 ## Output
 
-Return the final check configuration ready to add to `checker.json`.
+Return the final check configuration ready to add to `checkmate.json`.
