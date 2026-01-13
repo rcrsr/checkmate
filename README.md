@@ -16,6 +16,39 @@ Automated code quality enforcement for Claude Code. Runs your linters, formatter
 
 **Self-validating config.** Edit `.claude/checkmate.json` and the hook validates the schema instantly. Malformed configs blocked before they break anything.
 
+## How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Claude edits file.ts                                           │
+└──────────────────────────────┬──────────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  PostToolUse hook fires (Edit/Write)                            │
+└──────────────────────────────┬──────────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Load .claude/checkmate.json                                    │
+│  Find matching environment by path                              │
+│  Get checks for file extension                                  │
+└──────────────────────────────┬──────────────────────────────────┘
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Run each check (eslint, prettier, etc.)                        │
+│  Parse output with configured parser                            │
+│  Collect diagnostics                                            │
+└──────────────────────────────┬──────────────────────────────────┘
+                               ▼
+              ┌────────────────┴────────────────┐
+              ▼                                 ▼
+┌─────────────────────────┐       ┌─────────────────────────┐
+│  No errors              │       │  Errors found           │
+│  Continue silently      │       │  Block with diagnostics │
+└─────────────────────────┘       └─────────────────────────┘
+```
+
+The hook runs synchronously after each Edit/Write operation. Checks execute in sequence. First error-producing check blocks further edits until Claude fixes the issue.
+
 ## Installation
 
 ```bash

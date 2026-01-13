@@ -147,35 +147,6 @@ function fileMatchesPaths(relativePath, paths) {
 }
 
 /**
- * Find the matching environment for a file path.
- * First match wins (iterate in order, check paths/exclude).
- */
-function findEnvironmentForFile(config, filePath, projectRoot) {
-  if (!config?.environments || !Array.isArray(config.environments)) return null;
-
-  const relativePath = path.relative(projectRoot, filePath);
-
-  for (const env of config.environments) {
-    if (!env.paths || !Array.isArray(env.paths)) continue;
-
-    // Check if file matches any of the environment's paths
-    if (!fileMatchesPaths(relativePath, env.paths)) continue;
-
-    // Check exclude patterns
-    if (env.exclude && Array.isArray(env.exclude)) {
-      const excluded = env.exclude.some((pattern) =>
-        matchesExcludePattern(relativePath, pattern)
-      );
-      if (excluded) continue;
-    }
-
-    // First match wins
-    return env;
-  }
-  return null;
-}
-
-/**
  * Get checks for a file extension from an environment's checks config.
  */
 function getChecksForExtension(checksConfig, ext) {
