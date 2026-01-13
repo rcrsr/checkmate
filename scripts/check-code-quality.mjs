@@ -199,12 +199,49 @@ function getChecksForExtension(checksConfig, ext) {
 
 /**
  * Get checks for a file based on its extension and environment.
+ * Returns { checks: [], reason: string } where reason explains why no checks ran.
  */
 function getChecksForFile(config, filePath, projectRoot) {
   const ext = path.extname(filePath);
-  const env = findEnvironmentForFile(config, filePath, projectRoot);
-  if (!env) return [];
-  return getChecksForExtension(env.checks, ext);
+  const relativePath = path.relative(projectRoot, filePath);
+
+  if (!config?.environments || !Array.isArray(config.environments)) {
+    return { checks: [], reason: "no-config" };
+  }
+
+  // Check each environment to understand why no checks would run
+  for (const env of config.environments) {
+    if (!env.paths || !Array.isArray(env.paths)) continue;
+
+    // Check if file matches any of the environment's paths
+    if (!fileMatchesPaths(relativePath, env.paths)) continue;
+
+    // File matches this environment's paths - check if excluded
+    if (env.exclude && Array.isArray(env.exclude)) {
+      const matchedPattern = env.exclude.find((pattern) =>
+        matchesExcludePattern(relativePath, pattern)
+      );
+      if (matchedPattern) {
+        // File was excluded - check if extension has checks in this env
+        const hasChecksForExt = getChecksForExtension(env.checks, ext).length > 0;
+        if (hasChecksForExt) {
+          return { checks: [], reason: "path-excluded", pattern: matchedPattern, env: env.name };
+        }
+        continue; // No checks for this extension anyway, try next env
+      }
+    }
+
+    // Not excluded - return checks for this extension
+    const checks = getChecksForExtension(env.checks, ext);
+    if (checks.length > 0) {
+      return { checks, reason: "ok" };
+    }
+    // Environment matches but no checks for this extension
+    return { checks: [], reason: "no-checks-for-extension" };
+  }
+
+  // No environment matched the file path
+  return { checks: [], reason: "no-matching-environment" };
 }
 
 // =============================================================================
@@ -565,9 +602,10 @@ async function main() {
   const diagnostics = [];
 
   // Run configured checks (if config exists and checks are configured)
+  let checkResult = { checks: [], reason: "no-config" };
   if (config) {
-    const checks = getChecksForFile(config, filePath, projectRoot);
-    for (const check of checks) {
+    checkResult = getChecksForFile(config, filePath, projectRoot);
+    for (const check of checkResult.checks) {
       const checkDiagnostics = runCheck(check, filePath, projectRoot);
       diagnostics.push(...checkDiagnostics);
     }
@@ -605,15 +643,29 @@ async function main() {
     process.exit(0);
   }
 
-  // Determine if any checks ran
-  const checksRan = config
-    ? getChecksForFile(config, filePath, projectRoot).length > 0
-    : false;
+  // Determine if any checks ran and provide appropriate message
+  const checksRan = checkResult.checks.length > 0;
 
   if (!checksRan && !isConfigFile) {
     const ext = path.extname(filePath);
     const fileType = ext || path.basename(filePath);
-    outputJson({ systemMessage: `No checks configured for ${fileType} files` });
+
+    let message;
+    switch (checkResult.reason) {
+      case "path-excluded":
+        message = `Skipped: path excluded by "${checkResult.pattern}"`;
+        break;
+      case "no-checks-for-extension":
+        message = `No checks configured for ${fileType} files`;
+        break;
+      case "no-matching-environment":
+        message = `No environment configured for this path`;
+        break;
+      default:
+        message = `No checks configured for ${fileType} files`;
+    }
+
+    outputJson({ systemMessage: message });
     process.exit(0);
   }
 

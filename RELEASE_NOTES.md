@@ -1,5 +1,14 @@
 # Release Notes
 
+## 1.1.1
+
+### Fixes
+
+- Clarify hook message when file path is excluded from checks
+  - Old: `No checks configured for .ts files` (misleading)
+  - New: `Skipped: path excluded by "**/*.test.ts"` (shows matched pattern)
+- Add distinct message for files outside any configured environment path
+
 ## 1.1.0
 
 ### Features
