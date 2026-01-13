@@ -570,13 +570,13 @@ async function main() {
 
   // No file path provided - skip silently
   if (!filePath) {
-    outputJson({ systemMessage: "No file path provided" });
+    outputJson({ systemMessage: "[checkmate] No file path provided" });
     process.exit(0);
   }
 
   // File doesn't exist - skip silently
   if (!fs.existsSync(filePath)) {
-    outputJson({ systemMessage: `File not found: ${filePath}` });
+    outputJson({ systemMessage: `[checkmate] File not found: ${filePath}` });
     process.exit(0);
   }
 
@@ -584,7 +584,7 @@ async function main() {
   const { config, projectRoot } = loadConfig();
   if (!projectRoot) {
     outputJson({
-      systemMessage: "CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment",
+      systemMessage: "[checkmate] CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment",
     });
     process.exit(0);
   }
@@ -594,7 +594,7 @@ async function main() {
   // No config and not editing the config file - nothing to do
   if (!config && !isConfigFile) {
     outputJson({
-      systemMessage: "No checkmate.json found - run /checkmate:init to configure",
+      systemMessage: "[checkmate] No checkmate.json found - run /checkmate:init to configure",
     });
     process.exit(0);
   }
@@ -637,8 +637,8 @@ async function main() {
       decision: "block",
       reason,
       systemMessage: hasErrors
-        ? `Quality check failed for ${fileName}`
-        : `Quality warnings for ${fileName}`,
+        ? `[checkmate] Quality check failed for ${fileName}`
+        : `[checkmate] Quality warnings for ${fileName}`,
     });
     process.exit(0);
   }
@@ -665,13 +665,13 @@ async function main() {
         message = `No checks configured for ${fileType} files`;
     }
 
-    outputJson({ systemMessage: message });
+    outputJson({ systemMessage: `[checkmate] ${message}` });
     process.exit(0);
   }
 
   // All clean - approve
   outputJson({
-    systemMessage: `Quality check passed for ${fileName}`,
+    systemMessage: `[checkmate] Quality check passed for ${fileName}`,
   });
   process.exit(0);
 }

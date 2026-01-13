@@ -1,5 +1,11 @@
 # Release Notes
 
+## 1.1.2
+
+### Improvements
+
+- Prefix all hook messages with `[checkmate]` for clear attribution
+
 ## 1.1.1
 
 ### Fixes
