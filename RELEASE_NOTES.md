@@ -1,5 +1,22 @@
 # Release Notes
 
+## 1.1.3
+
+### Features
+
+- Add `jsonl` parser for JSON Lines output format
+  - Each line: `{"file": "path", "line": 10, "message": "error"}`
+  - Optional `column` field (defaults to 1)
+
+### Improvements
+
+- Simplify hook output messages
+  - Pass: `[checkmate] pass`
+  - Fail: `[checkmate] fail: eslint, prettier` (lists failed checks)
+  - Excluded path: `[checkmate] excluded`
+  - No checks configured: `[checkmate] skipped`
+  - No config: `[checkmate] disabled (run /checkmate:init to configure)`
+
 ## 1.1.2
 
 ### Improvements

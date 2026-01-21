@@ -590,7 +590,7 @@ async function main() {
   // No config and not editing the config file - nothing to do
   if (!config && !isConfigFile) {
     outputJson({
-      systemMessage: "[checkmate] No checkmate.json found - run /checkmate:init to configure",
+      systemMessage: "[checkmate] disabled (run /checkmate:init to configure)",
     });
     process.exit(0);
   }
@@ -626,15 +626,13 @@ async function main() {
 
   // Any diagnostics found - block
   if (diagnostics.length > 0) {
-    const hasErrors = diagnostics.some((d) => d.severity === "error");
     const reason = formatDiagnosticsBlock(diagnostics, fileName);
+    const failedChecks = [...new Set(diagnostics.map((d) => d.source))].join(", ");
 
     outputJson({
       decision: "block",
       reason,
-      systemMessage: hasErrors
-        ? `[checkmate] Quality check failed for ${fileName}`
-        : `[checkmate] Quality warnings for ${fileName}`,
+      systemMessage: `[checkmate] fail: ${failedChecks}`,
     });
     process.exit(0);
   }
@@ -643,32 +641,13 @@ async function main() {
   const checksRan = checkResult.checks.length > 0;
 
   if (!checksRan && !isConfigFile) {
-    const ext = path.extname(filePath);
-    const fileType = ext || path.basename(filePath);
-
-    let message;
-    switch (checkResult.reason) {
-      case "path-excluded":
-        message = `Skipped: path excluded by "${checkResult.pattern}"`;
-        break;
-      case "no-checks-for-extension":
-        message = `No checks configured for ${fileType} files`;
-        break;
-      case "no-matching-environment":
-        message = `No environment configured for this path`;
-        break;
-      default:
-        message = `No checks configured for ${fileType} files`;
-    }
-
+    const message = checkResult.reason === "path-excluded" ? "excluded" : "skipped";
     outputJson({ systemMessage: `[checkmate] ${message}` });
     process.exit(0);
   }
 
   // All clean - approve
-  outputJson({
-    systemMessage: `[checkmate] Quality check passed for ${fileName}`,
-  });
+  outputJson({ systemMessage: "[checkmate] pass" });
   process.exit(0);
 }
 
