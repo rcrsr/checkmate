@@ -1,5 +1,11 @@
 # Release Notes
 
+## 1.1.4
+
+### Documentation
+
+- Add `jsonl` parser to all reference docs (README, init command, configure-tool agent)
+
 ## 1.1.3
 
 ### Features

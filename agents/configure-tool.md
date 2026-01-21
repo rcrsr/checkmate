@@ -72,6 +72,7 @@ Check if output matches a predefined parser:
 | `tsc` | `path(line,col): error TScode: message` | `app.ts(5,1): error TS2304: msg` |
 | `biome` | `path:line:col rule message` | `app.ts:5:1 lint/style msg` |
 | `prettier` | Pass/fail only (no structured diagnostics) | Any non-empty output = fail |
+| `jsonl` | JSON Lines with file/line/message fields | `{"file":"x.ts","line":10,"message":"err"}` |
 | `generic` | Fallback - returns raw output truncated | Use when no pattern matches |
 
 ### Step 4: Build Custom Regex (if needed)

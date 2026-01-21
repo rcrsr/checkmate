@@ -242,6 +242,7 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
 | `tsc-files` | tsc-files (per-file TypeScript) | `path(line,col): error TScode: message` |
 | `biome` | Biome | `path:line:col rule message` |
 | `prettier` | Any format checker | Pass/fail only (non-empty = fail) |
+| `jsonl` | JSON Lines output | `{"file":"x.ts","line":10,"message":"err"}` |
 | `generic` | Fallback | Returns raw output truncated |
 
 **Custom regex parser:** For tools without a predefined parser, use an inline regex with named capture groups:

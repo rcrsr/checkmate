@@ -168,6 +168,7 @@ Named groups: `line`, `column`, `message`, `rule`, `severity`.
 | `tsc` | TypeScript compiler |
 | `prettier` | prettier, biome format |
 | `biome` | biome lint |
+| `jsonl` | JSON Lines output tools |
 | `generic` | Any tool (raw output) |
 
 ## Commands
