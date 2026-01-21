@@ -19,7 +19,7 @@ import * as path from "node:path";
 // Schema Definitions
 // =============================================================================
 
-const PREDEFINED_PARSERS = ["ruff", "ty", "eslint", "tsc", "prettier", "biome", "generic"];
+const PREDEFINED_PARSERS = ["ruff", "ty", "eslint", "tsc", "prettier", "biome", "generic", "jsonl"];
 
 // =============================================================================
 // Validation Functions

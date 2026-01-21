@@ -382,6 +382,31 @@ const parsers = {
     }
     return [];
   },
+
+  jsonl(output) {
+    // JSONL format: one JSON object per line
+    // { "file": "path/to/file.md", "line": 114, "message": "error description" }
+    // { "file": "path/to/file.md", "line": 200, "column": 5, "message": "error with column" }
+    const results = [];
+    const lines = output.split("\n").filter((l) => l.trim());
+
+    for (const line of lines) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.file && typeof obj.line === "number" && obj.message) {
+          results.push({
+            line: obj.line,
+            column: typeof obj.column === "number" ? obj.column : 1,
+            message: obj.message,
+            severity: "error",
+          });
+        }
+      } catch {
+        // Skip non-JSON lines
+      }
+    }
+    return results;
+  },
 };
 
 /**
