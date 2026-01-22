@@ -158,6 +158,28 @@ For tools without predefined parsers:
 
 Named groups: `line`, `column`, `message`, `rule`, `severity`.
 
+### JSONL Parser (Custom Tools)
+
+Building a custom linter or wrapper script? Output JSON Lines for structured diagnostics:
+
+```bash
+#!/bin/bash
+# my-checker.sh - outputs JSONL
+echo '{"file":"src/app.ts","line":10,"message":"Missing return type"}'
+echo '{"file":"src/app.ts","line":25,"column":8,"message":"Unused variable"}'
+```
+
+```json
+{
+  "name": "my-checker",
+  "command": "./scripts/my-checker.sh",
+  "args": ["$FILE"],
+  "parser": "jsonl"
+}
+```
+
+JSONL format: one JSON object per line with `file`, `line`, `message` (required) and `column` (optional).
+
 ## Predefined Parsers
 
 | Parser | Tools |
@@ -168,7 +190,7 @@ Named groups: `line`, `column`, `message`, `rule`, `severity`.
 | `tsc` | TypeScript compiler |
 | `prettier` | prettier, biome format |
 | `biome` | biome lint |
-| `jsonl` | JSON Lines output tools |
+| `jsonl` | JSON Lines output tools (preferred for custom tool)|
 | `gcc` | clang-format, clang-tidy, shellcheck --format=gcc, gcc |
 | `generic` | Any tool (raw output) |
 
