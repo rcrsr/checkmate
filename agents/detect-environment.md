@@ -28,8 +28,10 @@ find . -type f \( \
   -name "poetry.lock" -o \
   -name "Pipfile.lock" -o \
   -name "Cargo.toml" -o \
-  -name "go.mod" \
-\) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/vendor/*" -not -path "*/.venv/*" 2>/dev/null
+  -name "go.mod" -o \
+  -name "CMakeLists.txt" -o \
+  -name ".clang-format" \
+\) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/vendor/*" -not -path "*/.venv/*" -not -path "*/build/*" -not -path "*/cmake-build-*/*" 2>/dev/null
 ```
 
 ### Step 2: Group by Directory
@@ -78,6 +80,14 @@ For each environment directory, determine the package manager using priority rul
 |-----------|--------------|
 | `go.mod` | `[]` (direct invocation) |
 
+**C/C++:**
+| Indicator | Exec Pattern | Notes |
+|-----------|--------------|-------|
+| `CMakeLists.txt` | `[]` (direct invocation) | CMake project |
+| `.clang-format` | `[]` (direct invocation) | Has formatting config |
+
+**Note:** C++ tools (clang-format, clang-tidy) use direct invocation, but on macOS Homebrew they may require full paths: `/opt/homebrew/opt/llvm/bin/clang-format`
+
 ### Step 4: Return Structured JSON
 
 Output all environments as a JSON array:
@@ -90,28 +100,32 @@ Output all environments as a JSON array:
       "javascript": { "primary": "npm", "exec": ["npx"] },
       "python": null,
       "rust": null,
-      "go": null
+      "go": null,
+      "cpp": null
     },
     {
       "path": "apps/web",
       "javascript": { "primary": "pnpm", "exec": ["pnpm", "exec"] },
       "python": null,
       "rust": null,
-      "go": null
+      "go": null,
+      "cpp": null
     },
     {
       "path": "services/api",
       "javascript": null,
       "python": { "primary": "uv", "exec": ["uv", "run"] },
       "rust": null,
-      "go": null
+      "go": null,
+      "cpp": null
     },
     {
       "path": "packages/rust-lib",
       "javascript": null,
       "python": null,
       "rust": { "exec": ["cargo"] },
-      "go": null
+      "go": null,
+      "cpp": null
     }
   ]
 }
@@ -119,7 +133,7 @@ Output all environments as a JSON array:
 
 **Field definitions:**
 - `path` - Relative path from project root to this environment
-- `javascript/python/rust/go` - Manager info or `null` if not present
+- `javascript/python/rust/go/cpp` - Manager info or `null` if not present
 - `primary` - The detected manager name
 - `exec` - Array of command parts to prepend to tool invocation
 
@@ -180,7 +194,24 @@ Include both root and nested environments. The checkmate will use the most speci
       "javascript": { "primary": "pnpm", "exec": ["pnpm", "exec"] },
       "python": null,
       "rust": null,
-      "go": null
+      "go": null,
+      "cpp": null
+    }
+  ]
+}
+```
+
+**C++ project with CMake:**
+```json
+{
+  "environments": [
+    {
+      "path": ".",
+      "javascript": null,
+      "python": null,
+      "rust": null,
+      "go": null,
+      "cpp": { "exec": [] }
     }
   ]
 }
@@ -195,21 +226,32 @@ Include both root and nested environments. The checkmate will use the most speci
       "javascript": { "primary": "pnpm", "exec": ["pnpm", "exec"] },
       "python": null,
       "rust": null,
-      "go": null
+      "go": null,
+      "cpp": null
     },
     {
       "path": "services/api",
       "javascript": null,
       "python": { "primary": "uv", "exec": ["uv", "run"] },
       "rust": null,
-      "go": null
+      "go": null,
+      "cpp": null
     },
     {
       "path": "services/worker",
       "javascript": null,
       "python": null,
       "rust": null,
-      "go": { "exec": [] }
+      "go": { "exec": [] },
+      "cpp": null
+    },
+    {
+      "path": "native/engine",
+      "javascript": null,
+      "python": null,
+      "rust": null,
+      "go": null,
+      "cpp": { "exec": [] }
     }
   ]
 }

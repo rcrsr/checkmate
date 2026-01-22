@@ -407,6 +407,35 @@ const parsers = {
     }
     return results;
   },
+
+  gcc(output) {
+    // GCC-style format: file:line:col: severity: message
+    // Used by: clang-format, clang-tidy, gcc, shellcheck --format=gcc
+    // Examples:
+    //   src/main.cpp:10:5: error: expected ';' after expression
+    //   script.sh:15:1: warning: Use $(...) instead of `...` [SC2006]
+    const results = [];
+    const lines = output.split("\n").filter((l) => l.trim());
+
+    for (const line of lines) {
+      // Match: file:line:col: severity: message
+      // Also handles: file:line:col: severity: message [CODE]
+      const match = line.match(/:(\d+):(\d+):\s*(error|warning|note|info):\s*(.+)$/i);
+      if (match) {
+        const message = match[4].trim();
+        // Extract rule code if present (e.g., [SC2006] or [-Wclang-format-violations])
+        const ruleMatch = message.match(/\[([^\]]+)\]$/);
+        results.push({
+          line: parseInt(match[1], 10),
+          column: parseInt(match[2], 10),
+          message: ruleMatch ? message.replace(/\s*\[[^\]]+\]$/, "") : message,
+          rule: ruleMatch ? ruleMatch[1] : undefined,
+          severity: match[3].toLowerCase() === "error" ? "error" : "warning",
+        });
+      }
+    }
+    return results;
+  },
 };
 
 /**

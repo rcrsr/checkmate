@@ -1,5 +1,27 @@
 # Release Notes
 
+## 1.1.5
+
+### Features
+
+- Add `gcc` parser for GCC-style output format (`file:line:col: severity: message`)
+  - Supports clang-format, clang-tidy, shellcheck --format=gcc, gcc, and similar tools
+  - Extracts rule codes from bracketed suffixes (e.g., `[SC2006]`, `[-Wclang-format-violations]`)
+
+### Documentation
+
+- Add C++ tooling support to `/checkmate:init`
+  - clang-format, clang-tidy, cppcheck discovery and configuration
+  - macOS Homebrew LLVM path notes (`/opt/homebrew/opt/llvm/bin/`)
+  - Full C++ project example configuration
+- Add shell script tooling support
+  - shellcheck with `--format=gcc` for parseable output
+  - shfmt for format checking
+- Update `detect-environment` to detect C++/CMake projects
+  - Detects CMakeLists.txt and .clang-format as project indicators
+- Improve subagent invocation wording in commands
+  - Use "subagent" terminology for clearer delegation patterns
+
 ## 1.1.4
 
 ### Documentation

@@ -46,12 +46,14 @@ find . -type f -name "*.ts" -o -name "*.tsx" | head -1
 find . -type f -name "*.js" -o -name "*.jsx" | head -1
 find . -type f -name "*.rs" | head -1
 find . -type f -name "*.go" | head -1
+find . -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.cc" -o -name "*.h" -o -name "*.hpp" \) | head -1
+find . -type f -name "*.sh" | head -1
 
 # Check for formatter-compatible files
 find . -type f \( -name "*.json" -o -name "*.md" -o -name "*.yaml" -o -name "*.yml" \) | head -1
 
 # Check for package managers and config files
-ls package.json pyproject.toml Cargo.toml go.mod 2>/dev/null
+ls package.json pyproject.toml Cargo.toml go.mod CMakeLists.txt Makefile .clang-format 2>/dev/null
 
 # Detect build/temp directories to exclude
 ls -d dist build out .next .nuxt coverage __pycache__ .pytest_cache target 2>/dev/null
@@ -59,7 +61,7 @@ ls -d dist build out .next .nuxt coverage __pycache__ .pytest_cache target 2>/de
 
 ### Step 2: Detect All Environments
 
-Use the `checkmate:detect-environment` agent to scan for all package managers, including nested setups in monorepos.
+Use the `checkmate:detect-environment` subagent to detect all package managers and environment configurations, including nested setups in monorepos.
 
 The agent returns an array of environments:
 ```json
@@ -123,12 +125,41 @@ command -v golangci-lint && golangci-lint --version
 command -v staticcheck && staticcheck --version
 ```
 
+**C/C++ tools:**
+```bash
+# Check standard paths first
+command -v clang-format && clang-format --version
+command -v clang-tidy && clang-tidy --version
+command -v cppcheck && cppcheck --version
+
+# macOS Homebrew LLVM (not in PATH by default)
+/opt/homebrew/opt/llvm/bin/clang-format --version 2>/dev/null
+/opt/homebrew/opt/llvm/bin/clang-tidy --version 2>/dev/null
+
+# Linux Homebrew LLVM
+/home/linuxbrew/.linuxbrew/opt/llvm/bin/clang-format --version 2>/dev/null
+```
+
+**Platform note:** On macOS with Homebrew, LLVM tools are installed at `/opt/homebrew/opt/llvm/bin/` but not symlinked to avoid conflicts with Apple's clang. Use the full path in commands:
+```json
+{ "command": "/opt/homebrew/opt/llvm/bin/clang-format", "args": ["--dry-run", "-Werror", "$FILE"] }
+```
+
+**Shell script tools:**
+```bash
+command -v shellcheck && shellcheck --version
+command -v shfmt && shfmt --version
+```
+
 **If no tools found:** Suggest installation based on detected environment:
 - Python + uv: `uv add --dev ruff`
 - Python + pip: `pip install ruff`
 - TypeScript + pnpm: `pnpm add -D prettier eslint typescript`
 - TypeScript + npm: `npm install -D prettier eslint typescript`
 - Go: `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`
+- C/C++ (macOS): `brew install llvm` (note: use full path `/opt/homebrew/opt/llvm/bin/clang-format`)
+- C/C++ (Linux): `apt install clang-format clang-tidy` or `dnf install clang-tools-extra`
+- Shell: `brew install shellcheck shfmt` or `apt install shellcheck shfmt`
 
 ### Step 4: Build Configuration
 
@@ -243,6 +274,7 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
 | `biome` | Biome | `path:line:col rule message` |
 | `prettier` | Any format checker | Pass/fail only (non-empty = fail) |
 | `jsonl` | JSON Lines output | `{"file":"x.ts","line":10,"message":"err"}` |
+| `gcc` | GCC-style output | `path:line:col: severity: message` (clang-format, clang-tidy, shellcheck --format=gcc) |
 | `generic` | Fallback | Returns raw output truncated |
 
 **Custom regex parser:** For tools without a predefined parser, use an inline regex with named capture groups:
@@ -261,7 +293,7 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
 
 Named groups: `line`, `column`, `message`, `rule`, `severity` (all optional).
 
-For unfamiliar tools, use the `checkmate:configure-tool` agent to analyze output and build a regex.
+For unfamiliar tools, use the `checkmate:configure-tool` subagent to analyze output and build a regex.
 
 **Common configurations by environment:**
 
@@ -306,6 +338,30 @@ Rust (always use cargo):
 Go (direct invocation):
 ```json
 { "name": "golangci-lint", "command": "golangci-lint", "args": ["run", "$FILE"], "parser": { "pattern": ":(?<line>\\d+):(?<column>\\d+):\\s*(?<message>.+)", "severity": "error" }, "_auto": true }
+```
+
+C/C++ (use full path on macOS Homebrew):
+```json
+// clang-format (check formatting)
+{ "name": "clang-format", "command": "clang-format", "args": ["--dry-run", "-Werror", "$FILE"], "parser": "gcc", "_auto": true }
+
+// macOS Homebrew (not in PATH)
+{ "name": "clang-format", "command": "/opt/homebrew/opt/llvm/bin/clang-format", "args": ["--dry-run", "-Werror", "$FILE"], "parser": "gcc", "_auto": true }
+
+// clang-tidy (static analysis)
+{ "name": "clang-tidy", "command": "clang-tidy", "args": ["$FILE", "--"], "parser": "gcc", "_auto": true }
+
+// cppcheck
+{ "name": "cppcheck", "command": "cppcheck", "args": ["--error-exitcode=1", "--template=gcc", "$FILE"], "parser": "gcc", "_auto": true }
+```
+
+Shell scripts:
+```json
+// shellcheck (with gcc output format for line numbers)
+{ "name": "shellcheck", "command": "shellcheck", "args": ["--format=gcc", "$FILE"], "parser": "gcc", "_auto": true }
+
+// shfmt (format check)
+{ "name": "shfmt", "command": "shfmt", "args": ["-d", "$FILE"], "parser": "prettier", "_auto": true }
 ```
 
 **Full example (Python + uv):**
@@ -353,6 +409,30 @@ Go (direct invocation):
 
 **Note:** For TypeScript type checking, use `tsc-files` (checks single files) instead of `tsc` (checks entire project). Alternatively, configure `eslint` with `@typescript-eslint` for type-aware linting.
 
+**Full example (C++ with CMake):**
+```json
+{
+  "environments": [
+    {
+      "name": "root",
+      "paths": ["."],
+      "exclude": ["build/**", "cmake-build-*/**", "third_party/**"],
+      "checks": {
+        ".cpp,.cc,.c,.h,.hpp": [
+          { "name": "clang-format", "command": "/opt/homebrew/opt/llvm/bin/clang-format", "args": ["--dry-run", "-Werror", "$FILE"], "parser": "gcc", "_auto": true }
+        ],
+        ".sh": [
+          { "name": "shellcheck", "command": "shellcheck", "args": ["--format=gcc", "$FILE"], "parser": "gcc", "_auto": true },
+          { "name": "shfmt", "command": "shfmt", "args": ["-d", "$FILE"], "parser": "prettier", "_auto": true }
+        ]
+      }
+    }
+  ]
+}
+```
+
+**Note:** For C++ projects, use full paths for Homebrew-installed LLVM tools on macOS. The `--dry-run -Werror` flags make clang-format exit non-zero on formatting issues without modifying files.
+
 ### Step 5: Present and Confirm
 
 Show the user:
@@ -377,7 +457,7 @@ Ask the user:
 - Any custom scripts or project-specific checks?
 - Should test files be included or excluded? (e.g., `"tests/**"`, `"**/*.test.ts"`)
 
-For unfamiliar tools, offer to use the `checkmate:configure-tool` agent to analyze output and build a parser.
+For unfamiliar tools, offer to use the `checkmate:configure-tool` subagent to analyze output and build a parser.
 
 ### Step 6: Write Configuration
 

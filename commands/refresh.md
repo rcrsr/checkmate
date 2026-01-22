@@ -36,7 +36,7 @@ Do not proceed if no config exists. Direct user to `/checkmate:init`.
 
 ### Step 2: Detect Current Package Managers
 
-Use the `checkmate:detect-environment` agent to get current invocation patterns.
+Use the `checkmate:detect-environment` subagent to detect current package managers and invocation patterns.
 
 Compare against config - if package manager changed (e.g., switched from npm to pnpm), suggest updating all tool commands.
 
@@ -80,6 +80,21 @@ command -v golangci-lint && golangci-lint --version
 command -v staticcheck && staticcheck --version
 ```
 
+**C/C++:**
+```bash
+command -v clang-format && clang-format --version
+command -v clang-tidy && clang-tidy --version
+command -v cppcheck && cppcheck --version
+# macOS Homebrew LLVM (not in PATH)
+/opt/homebrew/opt/llvm/bin/clang-format --version 2>/dev/null
+```
+
+**Shell:**
+```bash
+command -v shellcheck && shellcheck --version
+command -v shfmt && shfmt --version
+```
+
 Compare against config - identify tools present but not configured.
 
 ### Step 5: Check for File Type Coverage
@@ -88,7 +103,7 @@ Find file types in the project:
 
 ```bash
 # Code files
-find . -type f \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.go" -o -name "*.rs" \) | \
+find . -type f \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.go" -o -name "*.rs" -o -name "*.cpp" -o -name "*.c" -o -name "*.h" -o -name "*.hpp" -o -name "*.sh" \) | \
   sed 's/.*\./\./' | sort | uniq -c | sort -rn
 
 # Formatter-compatible files
@@ -127,7 +142,7 @@ After user confirmation:
 The `_auto` field marks checks that were auto-discovered by `/checkmate:init`. Checks without this marker are user-added and must never be modified or removed.
 
 1. **Remove broken auto checks:** Delete entries with `_auto: true` for tools that are no longer installed
-2. **Add new tools:** Append new check configurations with `_auto: true` (use `/checkmate:configure-tool` for unfamiliar tools)
+2. **Add new tools:** Append new check configurations with `_auto: true` (use the `checkmate:configure-tool` subagent for unfamiliar tools)
 3. **Update auto checks:** Modify invocation patterns only for checks with `_auto: true`
 4. **Never touch user checks:** Checks without `_auto` marker are always preserved exactly as-is
 
