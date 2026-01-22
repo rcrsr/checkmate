@@ -6,7 +6,7 @@ Automated code quality enforcement for Claude Code. Runs your linters, formatter
 
 **Immediate feedback loop.** Claude edits a file → checks run automatically → errors block until fixed. No context lost. No forgotten linting steps.
 
-**Monorepo-native.** Different tools per directory. Python API with uv, TypeScript frontend with pnpm, Go worker with golangci-lint—all in one config.
+**Monorepo-native.** Different tools per directory. Python API with uv, TypeScript frontend with pnpm, C++ engine with clang-format, shell scripts with shellcheck—all in one config.
 
 **Zero-config start.** Run `/checkmate:init` and it discovers your toolchain: detects package managers (pnpm/npm/yarn/bun), environment managers (uv/poetry/pipenv/conda), and available linters.
 
@@ -169,6 +169,7 @@ Named groups: `line`, `column`, `message`, `rule`, `severity`.
 | `prettier` | prettier, biome format |
 | `biome` | biome lint |
 | `jsonl` | JSON Lines output tools |
+| `gcc` | clang-format, clang-tidy, shellcheck --format=gcc, gcc |
 | `generic` | Any tool (raw output) |
 
 ## Commands
