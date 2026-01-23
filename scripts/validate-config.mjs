@@ -13,7 +13,6 @@
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
 
 // =============================================================================
 // Schema Definitions
@@ -194,6 +193,57 @@ function validateEnvironmentArray(environments) {
   return errors;
 }
 
+function validateReviewerRule(rule, index) {
+  const errors = [];
+  const prefix = `reviewers[${index}]`;
+
+  if (!rule || typeof rule !== "object") {
+    errors.push(`${prefix}: must be an object`);
+    return errors;
+  }
+
+  // Required: match
+  if (!rule.match || typeof rule.match !== "string") {
+    errors.push(`${prefix}.match: required string`);
+  }
+
+  // Optional: action (must be "skip" if present)
+  if (rule.action !== undefined) {
+    if (rule.action !== "skip") {
+      errors.push(`${prefix}.action: must be "skip" if present`);
+    }
+  }
+
+  // reviewer: required unless action is "skip"
+  if (rule.action !== "skip") {
+    if (!rule.reviewer || typeof rule.reviewer !== "string") {
+      errors.push(`${prefix}.reviewer: required string (unless action is "skip")`);
+    }
+  }
+
+  // Optional: message (string)
+  if (rule.message !== undefined && typeof rule.message !== "string") {
+    errors.push(`${prefix}.message: must be string`);
+  }
+
+  return errors;
+}
+
+function validateReviewersArray(reviewers) {
+  const errors = [];
+
+  if (!Array.isArray(reviewers)) {
+    errors.push("reviewers: must be array");
+    return errors;
+  }
+
+  for (let i = 0; i < reviewers.length; i++) {
+    errors.push(...validateReviewerRule(reviewers[i], i));
+  }
+
+  return errors;
+}
+
 function validateConfig(config) {
   const errors = [];
   const warnings = [];
@@ -214,6 +264,11 @@ function validateConfig(config) {
   }
 
   errors.push(...validateEnvironmentArray(config.environments));
+
+  // Optional: reviewers (array)
+  if (config.reviewers !== undefined) {
+    errors.push(...validateReviewersArray(config.reviewers));
+  }
 
   return { errors, warnings };
 }

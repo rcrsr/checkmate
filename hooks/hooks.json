@@ -6,7 +6,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/check-code-quality.mjs\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/checkmate-quality.mjs\""
+          }
+        ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/checkmate-review.mjs\""
           }
         ]
       }

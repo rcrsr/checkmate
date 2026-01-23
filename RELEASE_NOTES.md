@@ -1,5 +1,23 @@
 # Release Notes
 
+## 1.2.0
+
+### Features
+
+- Add Task Reviewer system for triggering code review agents after subagent completions
+  - Configure `reviewers` array in `checkmate.json` to map subagent types to reviewer agents
+  - Exact matches take priority over wildcard patterns
+  - Wildcard patterns (`*-engineer`) capture prefix for substitution
+  - Use `*` or `$1` in `reviewer` and `message` fields for captured value
+  - Use `action: "skip"` to exempt specific agents from review
+  - Default message: "Task review required. Invoke the $REVIEWER subagent to validate the work."
+
+### Changes
+
+- Rename `check-code-quality.mjs` to `checkmate-quality.mjs` for consistency
+- Add `checkmate-review.mjs` hook for Task tool completions
+- Update `hooks.json` to include Task matcher
+
 ## 1.1.5
 
 ### Features

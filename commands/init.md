@@ -508,3 +508,4 @@ Inform the user that the checkmate hook will now run automatically on file edits
 - The `parser` field determines how output is parsed into diagnostics
 - Use `generic` parser for tools without a specific parser
 - `maxDiagnostics` limits output per check (default: 5)
+- Task reviewers are not auto-discovered; add `reviewers` array manually to trigger code review agents after Task completions (see README)

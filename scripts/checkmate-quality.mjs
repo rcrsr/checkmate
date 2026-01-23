@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /**
+ * checkmate-quality.mjs
  * PostToolUse hook: Check formatting, linting, and types for edited files
  *
  * Reads checkmate.json from .claude/ directory to determine which commands

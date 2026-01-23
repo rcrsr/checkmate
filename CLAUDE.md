@@ -1,6 +1,6 @@
 # checkmate
 
-Runs linters and formatters after Edit/Write operations. Blocks on errors.
+Runs linters and formatters after Edit/Write operations. Triggers code review agents after Task completions. Blocks on errors.
 
 ## Development
 
@@ -12,9 +12,10 @@ claude --plugin-dir /path/to/checkmate
 
 ```
 hooks/
-└── hooks.json               # PostToolUse bindings (Edit|Write)
+└── hooks.json               # PostToolUse bindings (Edit|Write|Task)
 scripts/
-├── check-code-quality.mjs   # Core hook: runs checks, parses output
+├── checkmate-quality.mjs    # Quality hook: runs checks, parses output
+├── checkmate-review.mjs     # Review hook: triggers reviewer agents
 └── validate-config.mjs      # Schema validator for checkmate.json
 commands/
 ├── init.md                  # /checkmate:init - generate config
@@ -26,22 +27,31 @@ agents/
 
 ## Hook Flow
 
+**Quality checks (Edit/Write):**
 1. PostToolUse fires on Edit/Write
 2. Loads `.claude/checkmate.json`, matches file to environment
 3. Runs checks via spawnSync, parses output
 4. Blocks if errors found; passes silently if clean
 5. Self-validates when `.claude/checkmate.json` is edited
 
+**Task reviews (Task):**
+1. PostToolUse fires on Task completion
+2. Loads `.claude/checkmate.json`, gets `reviewers` array
+3. Matches `subagent_type` against rules (exact match first, then wildcards)
+4. If `action: "skip"` → exits silently
+5. If reviewer found → blocks with message to invoke reviewer agent
+
 ## Key Files
 
 | File | Responsibility |
 |------|----------------|
-| `scripts/check-code-quality.mjs` | Main hook logic, parser implementations |
+| `scripts/checkmate-quality.mjs` | Quality hook logic, parser implementations |
+| `scripts/checkmate-review.mjs` | Task reviewer hook logic |
 | `scripts/validate-config.mjs` | JSON schema validation |
 
 ## Adding Parsers
 
-1. Add parser function to `parsers` object in `check-code-quality.mjs`
+1. Add parser function to `parsers` object in `checkmate-quality.mjs`
 2. Add parser name to `PREDEFINED_PARSERS` array in `validate-config.mjs`
 
 ## Tool Selection

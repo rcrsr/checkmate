@@ -1,19 +1,15 @@
 # Checkmate
 
-Automated code quality enforcement for Claude Code. Runs your linters, formatters, and type checkers after every edit—catches errors before they compound. Zero configuration needed to get started. Discovers and configures your tools automatically within seconds. Perfect for monorepos with diverse toolchains.
+Automated code quality enforcement for Claude Code. Runs your linters, formatters, and type checkers after every edit. Routes completed subagent work to reviewer agents. Catches errors before they compound.
 
 ## Why Checkmate?
 
 **Immediate feedback loop.** Claude edits a file → checks run automatically → errors block until fixed. No context lost. No forgotten linting steps.
-
+**Task review gates.** Subagent completes work → reviewer agent triggered automatically. Map `*-engineer` → `*-reviewer` with wildcard patterns.
 **Monorepo-native.** Different tools per directory. Python API with uv, TypeScript frontend with pnpm, C++ engine with clang-format, shell scripts with shellcheck—all in one config.
-
 **Zero-config start.** Run `/checkmate:init` and it discovers your toolchain: detects package managers (pnpm/npm/yarn/bun), environment managers (uv/poetry/pipenv/conda), and available linters.
-
 **Works with any tool.** Predefined parsers for common tools. Custom regex parsers for everything else. If it outputs errors, checkmate can parse it.
-
 **Protects your customizations.** Auto-discovered checks are marked `_auto`. User-added checks are never modified by refresh. Your tweaks survive updates.
-
 **Self-validating config.** Edit `.claude/checkmate.json` and the hook validates the schema instantly. Malformed configs blocked before they break anything.
 
 ## How It Works
@@ -193,6 +189,61 @@ JSONL format: one JSON object per line with `file`, `line`, `message` (required)
 | `jsonl` | JSON Lines output tools (preferred for custom tool)|
 | `gcc` | clang-format, clang-tidy, shellcheck --format=gcc, gcc |
 | `generic` | Any tool (raw output) |
+
+## Task Reviewers
+
+Trigger code review agents after subagent Task completions. Configure reviewers to validate implementation work.
+
+**Note:** Reviewers require manual configuration. Unlike quality checks, `/checkmate:init` does not auto-discover agent pairs—add the `reviewers` array to your config based on your workflow. `/checkmate:refresh` leaves the `reviewers` section untouched.
+
+### Basic Setup
+
+```json
+{
+  "environments": [...],
+  "reviewers": [
+    { "match": "frontend-engineer", "reviewer": "ui-reviewer" },
+    { "match": "*-engineer", "reviewer": "*-reviewer" }
+  ]
+}
+```
+
+### Reviewer Rule Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `match` | Yes | Exact subagent name or wildcard pattern (`*` captures prefix) |
+| `action` | No | Set to `"skip"` to disable review for matched agents |
+| `reviewer` | Yes* | Target reviewer agent. Supports `*` or `$1` for wildcard capture. *Required unless `action: "skip"` |
+| `message` | No | Custom block message. Supports `$REVIEWER`, `*`, and `$1` substitution. Default: "Task review required. Invoke the $REVIEWER subagent to validate the work." |
+
+### Pattern Matching
+
+Rules evaluate in two passes: exact matches first, then wildcards in declaration order.
+
+```json
+{
+  "reviewers": [
+    { "match": "test-engineer", "action": "skip" },
+    { "match": "frontend-engineer", "reviewer": "-ui-reviewer", "message": "Invoke $REVIEWER to validate the UI implementation." },
+    { "match": "*-engineer", "reviewer": "*-code-reviewer" }
+  ]
+}
+```
+
+Given `subagent_type: "python-engineer"`:
+1. No exact match for "python-engineer"
+2. Wildcard `*-engineer` matches, captures `python`
+3. Reviewer becomes `python-reviewer`
+4. Default message: "Task review required. Invoke the python-reviewer subagent to validate the work."
+
+### Skip Certain Agents
+
+Use `action: "skip"` to exempt agents from review:
+
+```json
+{ "match": "test-engineer", "action": "skip" }
+```
 
 ## Commands
 
