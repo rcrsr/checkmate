@@ -201,21 +201,21 @@ Trigger code review agents after subagent Task completions. Configure reviewers 
 ```json
 {
   "environments": [...],
-  "reviewers": [
-    { "match": "frontend-engineer", "reviewer": "ui-reviewer" },
-    { "match": "*-engineer", "reviewer": "*-reviewer" }
+  "tasks": [
+    { "name": "skip-tests", "match": "test-engineer", "action": "skip" },
+    { "name": "code-review", "match": "*-engineer", "action": "review", "message": "Invoke *-code-reviewer to validate." }
   ]
 }
 ```
 
-### Reviewer Rule Fields
+### Task Rule Fields
 
 | Field | Required | Description |
 |-------|----------|-------------|
+| `name` | Yes | Rule name shown in output |
 | `match` | Yes | Exact subagent name or wildcard pattern (`*` captures prefix) |
-| `action` | No | Set to `"skip"` to disable review for matched agents |
-| `reviewer` | Yes* | Target reviewer agent. Supports `*` or `$1` for wildcard capture. *Required unless `action: "skip"` |
-| `message` | No | Custom block message. Supports `$REVIEWER`, `*`, and `$1` substitution. Default: "Task review required. Invoke the $REVIEWER subagent to validate the work." |
+| `action` | Yes | `"skip"`, `"message"` (non-blocking), or `"review"` (blocking) |
+| `message` | Yes* | Message content. Supports `*` and `$1` substitution. *Required for `message` and `review` actions |
 
 ### Pattern Matching
 
@@ -223,10 +223,10 @@ Rules evaluate in two passes: exact matches first, then wildcards in declaration
 
 ```json
 {
-  "reviewers": [
-    { "match": "test-engineer", "action": "skip" },
-    { "match": "frontend-engineer", "reviewer": "-ui-reviewer", "message": "Invoke $REVIEWER to validate the UI implementation." },
-    { "match": "*-engineer", "reviewer": "*-code-reviewer" }
+  "tasks": [
+    { "name": "skip-tests", "match": "test-engineer", "action": "skip" },
+    { "name": "ui-review", "match": "frontend-engineer", "action": "review", "message": "Invoke ui-reviewer to validate." },
+    { "name": "code-review", "match": "*-engineer", "action": "review", "message": "Invoke *-code-reviewer to validate." }
   ]
 }
 ```
@@ -234,16 +234,15 @@ Rules evaluate in two passes: exact matches first, then wildcards in declaration
 Given `subagent_type: "python-engineer"`:
 1. No exact match for "python-engineer"
 2. Wildcard `*-engineer` matches, captures `python`
-3. Reviewer becomes `python-reviewer`
-4. Default message: "Task review required. Invoke the python-reviewer subagent to validate the work."
+3. Message becomes "Invoke python-code-reviewer to validate."
 
-### Skip Certain Agents
+### Actions
 
-Use `action: "skip"` to exempt agents from review:
-
-```json
-{ "match": "test-engineer", "action": "skip" }
-```
+| Action | Behavior | Output |
+|--------|----------|--------|
+| `skip` | No action | `[checkmate] ✅ <name>` |
+| `message` | Non-blocking | `[checkmate] ℹ️ <name>` |
+| `review` | Blocking | `[checkmate] 🔍 <name>` |
 
 ## Commands
 

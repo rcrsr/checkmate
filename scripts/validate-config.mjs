@@ -193,13 +193,18 @@ function validateEnvironmentArray(environments) {
   return errors;
 }
 
-function validateReviewerRule(rule, index) {
+function validateTaskRule(rule, index) {
   const errors = [];
-  const prefix = `reviewers[${index}]`;
+  const prefix = `tasks[${index}]`;
 
   if (!rule || typeof rule !== "object") {
     errors.push(`${prefix}: must be an object`);
     return errors;
+  }
+
+  // Required: name (string, used in output)
+  if (!rule.name || typeof rule.name !== "string") {
+    errors.push(`${prefix}.name: required string`);
   }
 
   // Required: match
@@ -207,38 +212,39 @@ function validateReviewerRule(rule, index) {
     errors.push(`${prefix}.match: required string`);
   }
 
-  // Optional: action (must be "skip" if present)
-  if (rule.action !== undefined) {
-    if (rule.action !== "skip") {
-      errors.push(`${prefix}.action: must be "skip" if present`);
+  // Required: action (must be "skip", "message", or "review")
+  const validActions = ["skip", "message", "review"];
+  if (!rule.action || typeof rule.action !== "string") {
+    errors.push(`${prefix}.action: required string (skip|message|review)`);
+  } else if (!validActions.includes(rule.action)) {
+    errors.push(`${prefix}.action: must be one of: ${validActions.join(", ")}`);
+  }
+
+  // message: required for "message" and "review" actions
+  if (rule.action === "message" || rule.action === "review") {
+    if (!rule.message || typeof rule.message !== "string") {
+      errors.push(`${prefix}.message: required string for action "${rule.action}"`);
     }
   }
 
-  // reviewer: required unless action is "skip"
-  if (rule.action !== "skip") {
-    if (!rule.reviewer || typeof rule.reviewer !== "string") {
-      errors.push(`${prefix}.reviewer: required string (unless action is "skip")`);
-    }
-  }
-
-  // Optional: message (string)
-  if (rule.message !== undefined && typeof rule.message !== "string") {
-    errors.push(`${prefix}.message: must be string`);
+  // message should not be present for "skip" action
+  if (rule.action === "skip" && rule.message !== undefined) {
+    errors.push(`${prefix}.message: should not be present for action "skip"`);
   }
 
   return errors;
 }
 
-function validateReviewersArray(reviewers) {
+function validateTasksArray(tasks) {
   const errors = [];
 
-  if (!Array.isArray(reviewers)) {
-    errors.push("reviewers: must be array");
+  if (!Array.isArray(tasks)) {
+    errors.push("tasks: must be array");
     return errors;
   }
 
-  for (let i = 0; i < reviewers.length; i++) {
-    errors.push(...validateReviewerRule(reviewers[i], i));
+  for (let i = 0; i < tasks.length; i++) {
+    errors.push(...validateTaskRule(tasks[i], i));
   }
 
   return errors;
@@ -265,9 +271,9 @@ function validateConfig(config) {
 
   errors.push(...validateEnvironmentArray(config.environments));
 
-  // Optional: reviewers (array)
-  if (config.reviewers !== undefined) {
-    errors.push(...validateReviewersArray(config.reviewers));
+  // Optional: tasks (array)
+  if (config.tasks !== undefined) {
+    errors.push(...validateTasksArray(config.tasks));
   }
 
   return { errors, warnings };

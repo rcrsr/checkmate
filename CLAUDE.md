@@ -34,12 +34,34 @@ agents/
 4. Blocks if errors found; passes silently if clean
 5. Self-validates when `.claude/checkmate.json` is edited
 
-**Task reviews (Task):**
+**Task completions (Task):**
 1. PostToolUse fires on Task completion
-2. Loads `.claude/checkmate.json`, gets `reviewers` array
+2. Loads `.claude/checkmate.json`, gets `tasks` array
 3. Matches `subagent_type` against rules (exact match first, then wildcards)
-4. If `action: "skip"` → exits silently
-5. If reviewer found → blocks with message to invoke reviewer agent
+4. If `action: "skip"` → silent exit
+5. If `action: "message"` → non-blocking systemMessage
+6. If `action: "review"` → blocks with review message
+
+## System Messages
+
+All output uses `[checkmate]` prefix with emoji status indicators.
+
+**Quality checks:**
+| Message | Meaning |
+|---------|---------|
+| `[checkmate] ✅ eslint ✅ prettier` | All checks passed |
+| `[checkmate] ✅ eslint ❌ tsc` | Mixed results (blocks) |
+| `[checkmate] ❌ tsc` | Check failed (blocks) |
+| `[checkmate] excluded` | File path excluded by config |
+| `[checkmate] skipped` | No checks configured for extension |
+| `[checkmate] disabled` | No checkmate.json found |
+
+**Task completions:**
+| Message | Meaning |
+|---------|---------|
+| `[checkmate] ✅ <name>` | `action: "skip"` |
+| `[checkmate] ℹ️ <name>` | `action: "message"` - non-blocking |
+| `[checkmate] 🔍 <name>` | `action: "review"` - blocking |
 
 ## Key Files
 

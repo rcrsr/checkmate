@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 /**
  * checkmate-review.mjs
- * PostToolUse hook: Trigger code review agents after Task completion
+ * PostToolUse hook: Handle Task completions with configurable actions
  *
- * Reads checkmate.json from .claude/ directory to determine which
- * reviewer agent to invoke based on the completed subagent type.
+ * Reads checkmate.json from .claude/ directory to determine what action
+ * to take based on the completed subagent type.
+ *
+ * Actions:
+ *   - skip: silent, no output
+ *   - message: non-blocking systemMessage
+ *   - review: blocking, requires review
  *
  * Exit codes: 0 = continue (with optional block decision)
  */
@@ -40,7 +45,7 @@ function loadConfig() {
 }
 
 // =============================================================================
-// Reviewer Matching
+// Task Matching
 // =============================================================================
 
 /**
@@ -70,20 +75,20 @@ function matchPattern(subagentType, pattern) {
 }
 
 /**
- * Find the first matching reviewer rule for a subagent type.
+ * Find the first matching task rule for a subagent type.
  * Exact matches have highest priority, then wildcards in declaration order.
  *
- * @param {Array} reviewers - Array of reviewer rules
+ * @param {Array} tasks - Array of task rules
  * @param {string} subagentType - The subagent type to match
  * @returns {{ rule: object, capture?: string } | null} Matching rule or null
  */
-function findMatchingReviewer(reviewers, subagentType) {
-  if (!Array.isArray(reviewers) || reviewers.length === 0) {
+function findMatchingTask(tasks, subagentType) {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
     return null;
   }
 
   // First pass: exact matches only
-  for (const rule of reviewers) {
+  for (const rule of tasks) {
     if (!rule.match) continue;
     if (rule.match === subagentType) {
       return { rule };
@@ -91,7 +96,7 @@ function findMatchingReviewer(reviewers, subagentType) {
   }
 
   // Second pass: wildcard patterns in order
-  for (const rule of reviewers) {
+  for (const rule of tasks) {
     if (!rule.match || !rule.match.includes("*")) continue;
     const result = matchPattern(subagentType, rule.match);
     if (result.matches) {
@@ -104,18 +109,14 @@ function findMatchingReviewer(reviewers, subagentType) {
 
 /**
  * Apply substitutions to a string.
- * Supports $REVIEWER, $1, and * placeholders.
+ * Supports $1 and * placeholders for captured prefix.
  *
  * @param {string} template - String with placeholders
- * @param {string} reviewer - Reviewer name for $REVIEWER
  * @param {string} capture - Captured prefix for $1 and *
  * @returns {string} String with substitutions applied
  */
-function applySubstitutions(template, reviewer, capture) {
+function applySubstitutions(template, capture) {
   let result = template;
-  if (reviewer) {
-    result = result.replace(/\$REVIEWER/g, reviewer);
-  }
   if (capture !== undefined) {
     result = result.replace(/\$1/g, capture);
     result = result.replace(/\*/g, capture);
@@ -161,42 +162,46 @@ async function main() {
     process.exit(0);
   }
 
-  // No config or no reviewers - skip silently
-  if (!config?.reviewers) {
+  // No config or no tasks - skip silently
+  if (!config?.tasks) {
     process.exit(0);
   }
 
-  // Find matching reviewer rule
-  const match = findMatchingReviewer(config.reviewers, subagentType);
+  // Find matching task rule
+  const match = findMatchingTask(config.tasks, subagentType);
   if (!match) {
     process.exit(0);
   }
 
   const { rule, capture } = match;
 
-  // Skip action - exit silently
+  const ruleName = rule.name;
+
+  // Skip action
   if (rule.action === "skip") {
-    outputJson({ systemMessage: `[checkmate] review skipped for ${subagentType}` });
+    outputJson({ systemMessage: `[checkmate] ✅ ${ruleName}` });
     process.exit(0);
   }
 
-  // Get reviewer name with substitution
-  let reviewer = rule.reviewer;
-  if (!reviewer) {
+  // Message action - non-blocking systemMessage
+  if (rule.action === "message") {
+    const message = applySubstitutions(rule.message || "", capture);
+    outputJson({ systemMessage: `[checkmate] ℹ️ ${ruleName}` });
     process.exit(0);
   }
-  reviewer = applySubstitutions(reviewer, null, capture);
 
-  // Get message with substitutions
-  const defaultMessage = "Task review required. Invoke the $REVIEWER subagent to validate the work.";
-  const message = applySubstitutions(rule.message || defaultMessage, reviewer, capture);
+  // Review action - blocking
+  if (rule.action === "review") {
+    const message = applySubstitutions(rule.message || "", capture);
+    outputJson({
+      decision: "block",
+      reason: message,
+      systemMessage: `[checkmate] 🔍 ${ruleName}`,
+    });
+    process.exit(0);
+  }
 
-  // Output block decision
-  outputJson({
-    decision: "block",
-    reason: message,
-    systemMessage: `[checkmate] review: invoke ${reviewer}`,
-  });
+  // Unknown action - skip silently
   process.exit(0);
 }
 

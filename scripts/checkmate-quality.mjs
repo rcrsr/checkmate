@@ -629,11 +629,19 @@ async function main() {
 
   // Run configured checks (if config exists and checks are configured)
   let checkResult = { checks: [], reason: "no-config" };
+  const passedChecks = [];
+  const failedChecks = [];
+
   if (config) {
     checkResult = getChecksForFile(config, filePath, projectRoot);
     for (const check of checkResult.checks) {
       const checkDiagnostics = runCheck(check, filePath, projectRoot);
-      diagnostics.push(...checkDiagnostics);
+      if (checkDiagnostics.length > 0) {
+        failedChecks.push(check.name);
+        diagnostics.push(...checkDiagnostics);
+      } else {
+        passedChecks.push(check.name);
+      }
     }
   }
 
@@ -641,14 +649,17 @@ async function main() {
   if (isConfigFile) {
     const validationResult = validateConfigFile(filePath);
     if (!validationResult.valid) {
+      failedChecks.push("schema");
       for (const err of validationResult.errors) {
         diagnostics.push({
           message: err.message,
           rule: err.path || "schema",
-          source: "checkmate-schema",
+          source: "schema",
           severity: "error",
         });
       }
+    } else {
+      passedChecks.push("schema");
     }
   }
 
@@ -657,12 +668,15 @@ async function main() {
   // Any diagnostics found - block
   if (diagnostics.length > 0) {
     const reason = formatDiagnosticsBlock(diagnostics, fileName);
-    const failedChecks = [...new Set(diagnostics.map((d) => d.source))].join(", ");
+    const statusParts = [
+      ...passedChecks.map((name) => `✅ ${name}`),
+      ...failedChecks.map((name) => `❌ ${name}`),
+    ];
 
     outputJson({
       decision: "block",
       reason,
-      systemMessage: `[checkmate] fail: ${failedChecks}`,
+      systemMessage: `[checkmate] ${statusParts.join(" ")}`,
     });
     process.exit(0);
   }
@@ -677,7 +691,8 @@ async function main() {
   }
 
   // All clean - approve
-  outputJson({ systemMessage: "[checkmate] pass" });
+  const statusParts = passedChecks.map((name) => `✅ ${name}`);
+  outputJson({ systemMessage: `[checkmate] ${statusParts.join(" ")}` });
   process.exit(0);
 }
 
