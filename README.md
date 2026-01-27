@@ -4,13 +4,11 @@ Automated code quality enforcement for Claude Code. Runs your linters, formatter
 
 ## Why Checkmate?
 
-**Immediate feedback loop.** Claude edits a file → checks run automatically → errors block until fixed. No context lost. No forgotten linting steps.
-**Task review gates.** Subagent completes work → reviewer agent triggered automatically. Map `*-engineer` → `*-reviewer` with wildcard patterns.
-**Monorepo-native.** Different tools per directory. Python API with uv, TypeScript frontend with pnpm, C++ engine with clang-format, shell scripts with shellcheck—all in one config.
-**Zero-config start.** Run `/checkmate:init` and it discovers your toolchain: detects package managers (pnpm/npm/yarn/bun), environment managers (uv/poetry/pipenv/conda), and available linters.
-**Works with any tool.** Predefined parsers for common tools. Custom regex parsers for everything else. If it outputs errors, checkmate can parse it.
-**Protects your customizations.** Auto-discovered checks are marked `_auto`. User-added checks are never modified by refresh. Your tweaks survive updates.
-**Self-validating config.** Edit `.claude/checkmate.json` and the hook validates the schema instantly. Malformed configs blocked before they break anything.
+- **Immediate feedback loop.** Claude edits a file → checks run automatically → errors block until fixed. No context lost. No forgotten linting steps.
+- **Task review gates.** Subagent completes work → reviewer agent triggered automatically. Map `*-engineer` → `*-reviewer` with wildcard patterns.
+- **Monorepo-native.** Different tools per directory. Python API with uv, TypeScript frontend with pnpm, C++ engine with clang-format, shell scripts with shellcheck—all in one config.
+- **Zero-config start.** Run `/checkmate:init` and it discovers your toolchain: detects package managers (pnpm/npm/yarn/bun), environment managers (uv/poetry/pipenv/conda), and available linters.
+- **Works with any tool.** Predefined parsers for common tools. Custom regex parsers for everything else. If it outputs errors, checkmate can parse it.
 
 ## How It Works
 
