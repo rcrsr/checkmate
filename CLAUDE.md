@@ -30,9 +30,10 @@ agents/
 **Quality checks (Edit/Write):**
 1. PostToolUse fires on Edit/Write
 2. Loads `.claude/checkmate.json`, matches file to environment
-3. Runs checks via spawnSync, parses output
-4. Blocks if errors found; passes silently if clean
-5. Self-validates when `.claude/checkmate.json` is edited
+3. Detects git operation state; skips if rebase/bisect (configurable)
+4. Runs checks via spawnSync, parses output
+5. Blocks if errors found; passes silently if clean
+6. Self-validates when `.claude/checkmate.json` is edited
 
 **Task completions (Task):**
 1. PostToolUse fires on Task completion
@@ -54,6 +55,7 @@ All output uses `[checkmate]` prefix with emoji status indicators.
 | `[checkmate] ❌ tsc` | Check failed (blocks) |
 | `[checkmate] excluded` | File path excluded by config |
 | `[checkmate] skipped` | No checks configured for extension |
+| `[checkmate] skipped (git <op> in progress)` | Git operation detected, checks skipped |
 | `[checkmate] disabled` | No checkmate.json found |
 
 **Task completions:**

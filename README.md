@@ -249,6 +249,31 @@ Given `subagent_type: "python-engineer"`:
 | `/checkmate:init` | Auto-discover tools, generate config |
 | `/checkmate:refresh` | Sync config with installed tools |
 
+## Skipping Checks During Git Operations
+
+Checkmate can skip checks during git operations where code modifications could cause problems:
+
+| Operation | Default | Why Skip? |
+|-----------|---------|-----------|
+| `rebase` | **skip** | Formatter fixes can conflict with subsequent patches |
+| `bisect` | **skip** | Any modification corrupts historical state being tested |
+| `merge` | run | Single commit, no subsequent patches |
+| `cherryPick` | run | Usually fine unless matching upstream exactly |
+| `revert` | run | Usually fine unless precision matters |
+| `am` | run | Similar to rebase but less common |
+
+To change defaults:
+
+```json
+{
+  "skipDuringGitOperations": {
+    "rebase": false,
+    "merge": true
+  },
+  "environments": [...]
+}
+```
+
 ## Validation
 
 Config auto-validates on edit. Manual check:

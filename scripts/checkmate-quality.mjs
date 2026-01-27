@@ -217,6 +217,62 @@ function getChecksForFile(config, filePath, projectRoot) {
 }
 
 // =============================================================================
+// Git State Detection
+// =============================================================================
+
+/**
+ * Detect if repository is in a special git operation state where running
+ * checks could interfere. Returns null if state cannot be determined
+ * (fail-open: checks proceed normally).
+ *
+ * @param {string} projectRoot - Project root directory
+ * @returns {{ operation: string | null }}
+ */
+function detectGitOperation(projectRoot) {
+  let result;
+
+  try {
+    result = spawnSync("git", ["status"], {
+      cwd: projectRoot,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 2000,
+      env: { ...process.env, LC_ALL: "C" },
+    });
+  } catch {
+    return { operation: null };
+  }
+
+  if (result.error || result.signal || result.status !== 0 || !result.stdout) {
+    return { operation: null };
+  }
+
+  const output = result.stdout;
+
+  // Check rebase/am before "unmerged paths" (rebase conflicts show both)
+  if (/rebase in progress/i.test(output)) {
+    return { operation: "rebase" };
+  }
+  if (/in the middle of an am session/i.test(output)) {
+    return { operation: "am" };
+  }
+  if (/currently bisecting/i.test(output)) {
+    return { operation: "bisect" };
+  }
+  if (/currently cherry-picking/i.test(output)) {
+    return { operation: "cherryPick" };
+  }
+  if (/currently reverting/i.test(output)) {
+    return { operation: "revert" };
+  }
+  if (/have unmerged paths|still merging/i.test(output)) {
+    return { operation: "merge" };
+  }
+
+  return { operation: null };
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -623,6 +679,28 @@ async function main() {
       systemMessage: "[checkmate] disabled (run /checkmate:init to configure)",
     });
     process.exit(0);
+  }
+
+  // Skip during certain git operations
+  const gitState = detectGitOperation(projectRoot);
+  if (gitState.operation) {
+    const defaultSkipOps = {
+      rebase: true,
+      bisect: true,
+      merge: false,
+      cherryPick: false,
+      revert: false,
+      am: false,
+    };
+    const skipConfig = config?.skipDuringGitOperations ?? {};
+    const shouldSkip = skipConfig[gitState.operation] ?? defaultSkipOps[gitState.operation];
+
+    if (shouldSkip) {
+      outputJson({
+        systemMessage: `[checkmate] skipped (git ${gitState.operation} in progress)`,
+      });
+      process.exit(0);
+    }
   }
 
   const diagnostics = [];

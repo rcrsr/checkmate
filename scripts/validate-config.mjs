@@ -250,6 +250,29 @@ function validateTasksArray(tasks) {
   return errors;
 }
 
+function validateSkipDuringGitOperations(skipConfig) {
+  const errors = [];
+  const validOps = ["rebase", "bisect", "merge", "cherryPick", "revert", "am"];
+
+  if (typeof skipConfig !== "object" || skipConfig === null) {
+    errors.push("skipDuringGitOperations: must be an object");
+    return errors;
+  }
+
+  for (const [key, value] of Object.entries(skipConfig)) {
+    if (!validOps.includes(key)) {
+      errors.push(
+        `skipDuringGitOperations.${key}: unknown git operation (valid: ${validOps.join(", ")})`
+      );
+    }
+    if (typeof value !== "boolean") {
+      errors.push(`skipDuringGitOperations.${key}: must be a boolean`);
+    }
+  }
+
+  return errors;
+}
+
 function validateConfig(config) {
   const errors = [];
   const warnings = [];
@@ -274,6 +297,11 @@ function validateConfig(config) {
   // Optional: tasks (array)
   if (config.tasks !== undefined) {
     errors.push(...validateTasksArray(config.tasks));
+  }
+
+  // Optional: skipDuringGitOperations (object)
+  if (config.skipDuringGitOperations !== undefined) {
+    errors.push(...validateSkipDuringGitOperations(config.skipDuringGitOperations));
   }
 
   return { errors, warnings };
