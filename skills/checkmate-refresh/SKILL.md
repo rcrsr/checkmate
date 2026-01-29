@@ -1,9 +1,12 @@
 ---
-description: Sync checkmate configuration with installed tools
+name: checkmate-refresh
+description: Sync checkmate.json with currently installed tools. Use when linters or formatters have been added, removed, or updated.
+disable-model-invocation: true
+user-invocable: true
 argument-hint: ""
 ---
 
-# refresh
+# checkmate-refresh
 
 Maintain and update the existing `.claude/checkmate.json` configuration.
 
@@ -28,11 +31,11 @@ cat .claude/checkmate.json
 ```
 No checkmate configuration found at .claude/checkmate.json
 
-The /checkmate:refresh command updates an existing configuration.
-To create a new configuration, run /checkmate:init instead.
+The /checkmate:checkmate-refresh command updates an existing configuration.
+To create a new configuration, run /checkmate:checkmate-init instead.
 ```
 
-Do not proceed if no config exists. Direct user to `/checkmate:init`.
+Do not proceed if no config exists. Direct user to `/checkmate:checkmate-init`.
 
 ### Step 2: Detect Current Package Managers
 
@@ -139,7 +142,7 @@ After user confirmation:
 
 **Critical: Only modify checks with `_auto: true`**
 
-The `_auto` field marks checks that were auto-discovered by `/checkmate:init`. Checks without this marker are user-added and must never be modified or removed.
+The `_auto` field marks checks that were auto-discovered by `/checkmate:checkmate-init`. Checks without this marker are user-added and must never be modified or removed.
 
 1. **Remove broken auto checks:** Delete entries with `_auto: true` for tools that are no longer installed
 2. **Add new tools:** Append new check configurations with `_auto: true` (use the `checkmate:configure-tool` subagent for unfamiliar tools)

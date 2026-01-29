@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-01-29
+
+### Added
+
+- Git operation detection: skip quality checks during rebase, am, and bisect to prevent corrupting repo state
+- File-based detection using `.git/` state files (rebase-merge, rebase-apply, BISECT_LOG, etc.)
+- Worktree support: resolves `.git` file to actual gitdir path
+- New `git` config option to override default skip behavior per operation
+- System message: `[checkmate] skipped (git <op> in progress)`
+
+### Changed
+
+- Consolidate scripts into single `checkmate.mjs` entry point with subcommands (`post-tool`, `post-task`, `validate`)
+- Move implementation files into `scripts/lib/` subfolder
+- Extract shared utilities (`getProjectRoot`, `loadConfig`, `readStdinJson`, `outputJson`) into `lib/lib.mjs`
+- Extract `pass()` and `block()` output helpers into `lib/lib.mjs`, centralizing `[checkmate]` prefix and exit logic
+- Replace subprocess spawn for config validation with direct `validateConfig()` import
+- Update `hooks.json` to route through `checkmate.mjs` subcommands
+- Refactor commands into skills: `commands/init.md` → `skills/checkmate-init/SKILL.md`, `commands/refresh.md` → `skills/checkmate-refresh/SKILL.md`
+- Use `AskUserQuestion` tool in `checkmate-init` for structured user input (test file exclusion, custom checks, coverage gaps, write confirmation)
+
+### Removed
+
+- `checkmate-quality.mjs` (replaced by `lib/post-tool.mjs`)
+- `checkmate-review.mjs` (replaced by `lib/post-task.mjs`)
+- `validate-config.mjs` (replaced by `lib/validate.mjs`)
+- `commands/` directory (replaced by `skills/`)
+
 ## [2.0.0] - 2025-01-24
 
 ### Added

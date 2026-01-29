@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/checkmate-quality.mjs\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/checkmate.mjs\" post-tool"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/checkmate-review.mjs\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/checkmate.mjs\" post-task"
           }
         ]
       }

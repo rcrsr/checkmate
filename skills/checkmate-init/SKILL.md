@@ -1,9 +1,12 @@
 ---
-description: Auto-discover tools and generate checkmate configuration
+name: checkmate-init
+description: Auto-discover linting and formatting tools, generate .claude/checkmate.json configuration. Use when setting up checkmate for a new project.
+disable-model-invocation: true
+user-invocable: true
 argument-hint: ""
 ---
 
-# init
+# checkmate-init
 
 Configure code quality checks for this project by discovering available tools and creating `.claude/checkmate.json`.
 
@@ -24,13 +27,13 @@ ls -la .claude/checkmate.json 2>/dev/null
 ```
 A checkmate configuration already exists at .claude/checkmate.json
 
-Running /checkmate:init will delete the existing config and create a new one.
-If you want to update the existing config, run /checkmate:refresh instead.
+Running /checkmate:checkmate-init will delete the existing config and create a new one.
+If you want to update the existing config, run /checkmate:checkmate-refresh instead.
 
 Do you want to proceed and replace the existing configuration? (yes/no)
 ```
 
-Only proceed if user explicitly confirms. If they say no, suggest `/checkmate:refresh`.
+Only proceed if user explicitly confirms. If they say no, suggest `/checkmate:checkmate-refresh`.
 
 ### Step 1: Discover Project Structure
 
@@ -156,6 +159,7 @@ command -v shfmt && shfmt --version
 - Python + pip: `pip install ruff`
 - TypeScript + pnpm: `pnpm add -D prettier eslint typescript`
 - TypeScript + npm: `npm install -D prettier eslint typescript`
+- TypeScript (tsc present, tsc-files missing): `pnpm add -D tsc-files` or `npm install -D tsc-files`
 - Go: `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`
 - C/C++ (macOS): `brew install llvm` (note: use full path `/opt/homebrew/opt/llvm/bin/clang-format`)
 - C/C++ (Linux): `apt install clang-format clang-tidy` or `dnf install clang-tools-extra`
@@ -297,7 +301,7 @@ For unfamiliar tools, use the `checkmate:configure-tool` subagent to analyze out
 
 **Common configurations by environment:**
 
-All auto-discovered checks include `"_auto": true` so `/checkmate:refresh` can manage them.
+All auto-discovered checks include `"_auto": true` so `/checkmate:checkmate-refresh` can manage them.
 
 Python (adapt runner to detected environment):
 ```json
@@ -433,12 +437,35 @@ Shell scripts:
 
 **Note:** For C++ projects, use full paths for Homebrew-installed LLVM tools on macOS. The `--dry-run -Werror` flags make clang-format exit non-zero on formatting issues without modifying files.
 
-### Step 5: Present and Confirm
+### Step 5: Gather User Preferences
 
-Show the user:
-1. What file types were detected
-2. What tools were found
-3. The proposed configuration
+Before presenting the configuration, use the `AskUserQuestion` tool to gather preferences. Ask all questions in a single call.
+
+**Question 1 — Test files:**
+- header: "Test files"
+- question: "Should test files be included or excluded from checks?"
+- options:
+  - "Exclude" — Add exclude patterns for test directories (tests/**, **/*.test.*, **/*.spec.*)
+  - "Include" — Run all checks on test files too
+- multiSelect: false
+
+**Question 2 — Additional checks:**
+- header: "Custom checks"
+- question: "Any custom scripts or project-specific checks to add?"
+- options:
+  - "None" — Only use discovered tools
+  - "Yes, I'll describe" — Pause for user to describe custom checks
+- multiSelect: false
+
+**Question 3 — Coverage gaps:**
+- header: "Missing tools"
+- question: "Any tools or file types I missed?"
+- options:
+  - "Looks complete" — Proceed with discovered tools
+  - "Yes, I'll describe" — Pause for user to list additions
+- multiSelect: false
+
+Apply the answers to the proposed configuration before presenting it.
 
 **Decision guidance:**
 - **biome vs prettier+eslint:** biome is faster but less configurable. Use prettier+eslint for existing configs.
@@ -451,15 +478,25 @@ Show the user:
   - `.css,.scss` - stylesheets
   - `.html` - templates
 
-Ask the user:
-- Are there additional checks they want to add?
-- Are there file types or tools we missed?
-- Any custom scripts or project-specific checks?
-- Should test files be included or excluded? (e.g., `"tests/**"`, `"**/*.test.ts"`)
-
 For unfamiliar tools, offer to use the `checkmate:configure-tool` subagent to analyze output and build a parser.
 
-### Step 6: Write Configuration
+### Step 6: Present and Confirm
+
+Show the user:
+1. What file types were detected
+2. What tools were found
+3. The proposed configuration (incorporating answers from Step 5)
+
+Use `AskUserQuestion` to confirm:
+- header: "Config"
+- question: "Write this configuration to .claude/checkmate.json?"
+- options:
+  - "Yes, write it" — Proceed to write
+  - "Show me first" — Display full JSON before writing
+  - "Make changes" — User describes modifications
+- multiSelect: false
+
+### Step 7: Write Configuration
 
 After user confirmation, create `.claude/checkmate.json` with the agreed configuration.
 
@@ -470,28 +507,9 @@ mkdir -p .claude
 
 Then write the configuration file. The validation hook runs automatically and flags any schema errors.
 
-### Step 7: Review Configuration
-
-**Always ask the user to review the generated config before finishing:**
-
-Show the user the complete `.claude/checkmate.json` and ask them to verify:
-- Are the environment paths correct for their project structure?
-- Are the invocation patterns correct (`pnpm exec` vs `npx` vs `uv run`)?
-- Are the file extensions correctly grouped?
-- Are there any tools or directories that should be added?
-
-```
-Please review the configuration above. Does everything look correct?
-- Environment paths match your project structure
-- Package managers are detected correctly
-- File extensions are grouped appropriately
-
-Reply with any changes needed, or confirm to proceed.
-```
-
 ### Step 8: Test Configuration
 
-After user confirms, test with a sample file:
+After writing, test with a sample file:
 ```bash
 # Find a sample file and run its checks manually
 find . -name "*.py" -o -name "*.ts" | head -1
@@ -499,7 +517,7 @@ find . -name "*.py" -o -name "*.ts" | head -1
 
 Run one of the configured commands manually to verify it works.
 
-Inform the user that the checkmate hook will now run automatically on file edits. Suggest running `/checkmate:refresh` periodically to keep the config up to date.
+Inform the user that the checkmate hook runs automatically on file edits. Suggest running `/checkmate:checkmate-refresh` periodically to keep the config up to date.
 
 ## Notes
 
@@ -508,4 +526,4 @@ Inform the user that the checkmate hook will now run automatically on file edits
 - The `parser` field determines how output is parsed into diagnostics
 - Use `generic` parser for tools without a specific parser
 - `maxDiagnostics` limits output per check (default: 5)
-- Task reviewers are not auto-discovered; add `reviewers` array manually to trigger code review agents after Task completions (see README)
+- Task reviewers are not auto-discovered; add `tasks` array manually to trigger code review agents after Task completions (see README)

@@ -1,12 +1,12 @@
-#!/usr/bin/env node
 /**
+ * validate.mjs
  * Validate checkmate.json configuration files.
  *
- * Usage:
- *   node validate-config.mjs <path-to-checkmate.json>
- *   node validate-config.mjs --stdin < checkmate.json
+ * Exports:
+ *   validateConfig(config) — returns { errors: string[], warnings: string[] }
+ *   run()                  — CLI entry point (argv / --stdin)
  *
- * Exit codes:
+ * Exit codes (CLI):
  *   0 = valid
  *   1 = invalid (errors found)
  *   2 = file not found or read error
@@ -250,7 +250,35 @@ function validateTasksArray(tasks) {
   return errors;
 }
 
-function validateConfig(config) {
+function validateSkipDuringGitOperations(skipConfig) {
+  const errors = [];
+  const validOps = ["rebase", "bisect", "merge", "cherryPick", "revert", "am"];
+
+  if (typeof skipConfig !== "object" || skipConfig === null) {
+    errors.push("git: must be an object");
+    return errors;
+  }
+
+  for (const [key, value] of Object.entries(skipConfig)) {
+    if (!validOps.includes(key)) {
+      errors.push(
+        `git.${key}: unknown git operation (valid: ${validOps.join(", ")})`
+      );
+    }
+    if (typeof value !== "boolean") {
+      errors.push(`git.${key}: must be a boolean`);
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Validate a checkmate config object.
+ * @param {object} config - Parsed checkmate.json
+ * @returns {{ errors: string[], warnings: string[] }}
+ */
+export function validateConfig(config) {
   const errors = [];
   const warnings = [];
 
@@ -276,6 +304,11 @@ function validateConfig(config) {
     errors.push(...validateTasksArray(config.tasks));
   }
 
+  // Optional: git (object)
+  if (config.git !== undefined) {
+    errors.push(...validateSkipDuringGitOperations(config.git));
+  }
+
   return { errors, warnings };
 }
 
@@ -287,22 +320,22 @@ function formatResults(results, filePath) {
   const lines = [];
 
   if (results.errors.length === 0 && results.warnings.length === 0) {
-    lines.push(`✓ ${filePath || "config"} is valid`);
+    lines.push(`\u2713 ${filePath || "config"} is valid`);
     return { output: lines.join("\n"), valid: true };
   }
 
   if (results.errors.length > 0) {
-    lines.push(`✗ ${filePath || "config"} has ${results.errors.length} error(s):`);
+    lines.push(`\u2717 ${filePath || "config"} has ${results.errors.length} error(s):`);
     for (const error of results.errors) {
-      lines.push(`  • ${error}`);
+      lines.push(`  \u2022 ${error}`);
     }
   }
 
   if (results.warnings.length > 0) {
     if (results.errors.length > 0) lines.push("");
-    lines.push(`⚠ ${results.warnings.length} warning(s):`);
+    lines.push(`\u26A0 ${results.warnings.length} warning(s):`);
     for (const warning of results.warnings) {
-      lines.push(`  • ${warning}`);
+      lines.push(`  \u2022 ${warning}`);
     }
   }
 
@@ -310,17 +343,20 @@ function formatResults(results, filePath) {
 }
 
 // =============================================================================
-// Main
+// CLI Entry Point
 // =============================================================================
 
-async function main() {
-  const args = process.argv.slice(2);
+/**
+ * CLI runner for `checkmate.mjs validate`.
+ * Reads config from argv path or --stdin, validates, prints results.
+ */
+export async function run() {
+  const args = process.argv.slice(3); // skip: node, checkmate.mjs, validate
 
   let configContent;
   let filePath;
 
   if (args.includes("--stdin")) {
-    // Read from stdin
     let data = "";
     for await (const chunk of process.stdin) {
       data += chunk;
@@ -328,8 +364,8 @@ async function main() {
     configContent = data;
     filePath = "<stdin>";
   } else if (args.includes("--help") || args.includes("-h")) {
-    console.log(`Usage: node validate-config.mjs <path-to-checkmate.json>
-       node validate-config.mjs --stdin < checkmate.json
+    console.log(`Usage: node checkmate.mjs validate <path-to-checkmate.json>
+       node checkmate.mjs validate --stdin < checkmate.json
 
 Validates a checkmate.json configuration file.
 
@@ -339,7 +375,6 @@ Exit codes:
   2 = file not found or read error`);
     process.exit(0);
   } else if (args.length > 0) {
-    // Read from file
     filePath = args[0];
     if (!fs.existsSync(filePath)) {
       console.error(`Error: file not found: ${filePath}`);
@@ -352,37 +387,29 @@ Exit codes:
       process.exit(2);
     }
   } else {
-    // Try to find checkmate.json in current directory
     const defaultPath = ".claude/checkmate.json";
     if (fs.existsSync(defaultPath)) {
       filePath = defaultPath;
       configContent = fs.readFileSync(filePath, "utf-8");
     } else {
-      console.error("Usage: node validate-config.mjs <path-to-checkmate.json>");
-      console.error("       node validate-config.mjs --stdin < checkmate.json");
+      console.error("Usage: node checkmate.mjs validate <path-to-checkmate.json>");
+      console.error("       node checkmate.mjs validate --stdin < checkmate.json");
       console.error("\nNo checkmate.json found in current directory.");
       process.exit(2);
     }
   }
 
-  // Parse JSON
   let config;
   try {
     config = JSON.parse(configContent);
   } catch (err) {
-    console.error(`✗ Invalid JSON: ${err.message}`);
+    console.error(`\u2717 Invalid JSON: ${err.message}`);
     process.exit(1);
   }
 
-  // Validate
   const results = validateConfig(config);
   const { output, valid } = formatResults(results, filePath);
 
   console.log(output);
   process.exit(valid ? 0 : 1);
 }
-
-main().catch((err) => {
-  console.error(`Error: ${err.message}`);
-  process.exit(2);
-});

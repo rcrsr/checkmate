@@ -1,6 +1,5 @@
-#!/usr/bin/env node
 /**
- * checkmate-quality.mjs
+ * post-tool.mjs
  * PostToolUse hook: Check formatting, linting, and types for edited files
  *
  * Reads checkmate.json from .claude/ directory to determine which commands
@@ -14,109 +13,43 @@
  */
 
 import { execSync, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { loadConfig, readStdinJson, pass, block } from "./lib.mjs";
+import { validateConfig } from "./validate.mjs";
 
 // =============================================================================
-// Config Loading
+// Config schema (array format):
+// {
+//   "environments": [
+//     {
+//       "name": "root",
+//       "paths": ["."],
+//       "exclude": ["vendor/**"],
+//       "checks": {
+//         ".py": [
+//           { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff" }
+//         ],
+//         ".ts,.tsx": [
+//           { "name": "eslint", "command": "pnpm", "args": ["exec", "eslint", "$FILE"], "parser": "eslint" }
+//         ]
+//       }
+//     }
+//   ]
+// }
+//
+// Parser can be:
+// - string: predefined parser name (ruff, ty, eslint, tsc, prettier, biome, generic)
+// - object: { pattern: "regex with named groups", severity?: "error"|"warning" }
+//   Named groups: line, column, message, rule, severity (all optional)
 // =============================================================================
-
-/**
- * Config schema (array format):
- * {
- *   "environments": [
- *     {
- *       "name": "root",
- *       "paths": ["."],
- *       "exclude": ["vendor/**"],
- *       "checks": {
- *         ".py": [
- *           { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff" }
- *         ],
- *         ".ts,.tsx": [
- *           { "name": "eslint", "command": "pnpm", "args": ["exec", "eslint", "$FILE"], "parser": "eslint" }
- *         ]
- *       }
- *     }
- *   ]
- * }
- *
- * Parser can be:
- * - string: predefined parser name (ruff, ty, eslint, tsc, prettier, biome, generic)
- * - object: { pattern: "regex with named groups", severity?: "error"|"warning" }
- *   Named groups: line, column, message, rule, severity (all optional)
- */
-
-function getProjectRoot() {
-  // Use CLAUDE_PROJECT_DIR env var set by Claude Code
-  return process.env.CLAUDE_PROJECT_DIR || null;
-}
-
-function loadConfig() {
-  const projectRoot = getProjectRoot();
-  if (!projectRoot) {
-    return { config: null, projectRoot: null };
-  }
-
-  const configPath = path.join(projectRoot, ".claude", "checkmate.json");
-  if (!fs.existsSync(configPath)) {
-    return { config: null, projectRoot };
-  }
-
-  try {
-    const content = fs.readFileSync(configPath, "utf-8");
-    return { config: JSON.parse(content), projectRoot };
-  } catch (err) {
-    return { config: null, projectRoot };
-  }
-}
-
-/**
- * Validate a checkmate.json config file.
- * Runs the validate-config.mjs script and returns results.
- */
-function validateConfigFile(configPath) {
-  const scriptDir = path.dirname(new URL(import.meta.url).pathname);
-  const validatorPath = path.join(scriptDir, "validate-config.mjs");
-
-  const result = spawnSync("node", [validatorPath, configPath], {
-    encoding: "utf-8",
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  const output = (result.stdout + result.stderr).trim();
-  const valid = result.status === 0;
-
-  if (valid) {
-    return { valid: true, errors: [] };
-  }
-
-  // Parse error lines into structured format
-  // Format: "path.to.field: message"
-  const errors = output
-    .split("\n")
-    .filter((line) => line.includes("•"))
-    .map((line) => {
-      const text = line.replace(/^\s*•\s*/, "").trim();
-      const colonIndex = text.indexOf(": ");
-      if (colonIndex > 0) {
-        return {
-          path: text.substring(0, colonIndex),
-          message: text.substring(colonIndex + 2),
-        };
-      }
-      return { path: "", message: text };
-    });
-
-  return { valid: false, errors: errors.length > 0 ? errors : [{ path: "", message: output }] };
-}
 
 /**
  * Check if a file path matches an exclude pattern.
  * Supports simple glob patterns: ** (any path), * (any segment)
  */
 function matchesExcludePattern(relativePath, pattern) {
-  // Convert glob pattern to regex
   const regexPattern = pattern
     .replace(/\*\*/g, "{{GLOBSTAR}}")
     .replace(/\*/g, "[^/]*")
@@ -153,12 +86,10 @@ function fileMatchesPaths(relativePath, paths) {
 function getChecksForExtension(checksConfig, ext) {
   if (!checksConfig) return [];
 
-  // Direct extension match
   if (checksConfig[ext]) {
     return checksConfig[ext];
   }
 
-  // Comma-separated extensions
   for (const [key, checks] of Object.entries(checksConfig)) {
     const extensions = key.split(",").map((e) => e.trim());
     if (extensions.includes(ext)) {
@@ -181,39 +112,106 @@ function getChecksForFile(config, filePath, projectRoot) {
     return { checks: [], reason: "no-config" };
   }
 
-  // Check each environment to understand why no checks would run
   for (const env of config.environments) {
     if (!env.paths || !Array.isArray(env.paths)) continue;
 
-    // Check if file matches any of the environment's paths
     if (!fileMatchesPaths(relativePath, env.paths)) continue;
 
-    // File matches this environment's paths - check if excluded
     if (env.exclude && Array.isArray(env.exclude)) {
       const matchedPattern = env.exclude.find((pattern) =>
         matchesExcludePattern(relativePath, pattern)
       );
       if (matchedPattern) {
-        // File was excluded - check if extension has checks in this env
         const hasChecksForExt = getChecksForExtension(env.checks, ext).length > 0;
         if (hasChecksForExt) {
           return { checks: [], reason: "path-excluded", pattern: matchedPattern, env: env.name };
         }
-        continue; // No checks for this extension anyway, try next env
+        continue;
       }
     }
 
-    // Not excluded - return checks for this extension
     const checks = getChecksForExtension(env.checks, ext);
     if (checks.length > 0) {
       return { checks, reason: "ok" };
     }
-    // Environment matches but no checks for this extension
     return { checks: [], reason: "no-checks-for-extension" };
   }
 
-  // No environment matched the file path
   return { checks: [], reason: "no-matching-environment" };
+}
+
+// =============================================================================
+// Git State Detection
+// =============================================================================
+
+const DEFAULT_SKIP_OPERATIONS = {
+  rebase: true,      // Formatting after commit N conflicts with patch N+1
+  am: true,          // Sequential patch application (same issue as rebase)
+  bisect: true,      // Any change corrupts historical state being tested
+  merge: false,      // Single operation, safe to format
+  cherryPick: false, // Usually single commit; user can override for multi-pick
+  revert: false,     // Single operation, safe to format
+};
+
+/**
+ * Resolve the actual .git directory path.
+ * Handles worktrees where .git is a file pointing to the real git dir.
+ */
+function getGitDir(projectRoot) {
+  const gitPath = path.join(projectRoot, ".git");
+
+  if (!existsSync(gitPath)) return null;
+
+  try {
+    const stat = statSync(gitPath);
+    if (stat.isDirectory()) return gitPath;
+
+    // .git is a file (worktree) - parse gitdir line
+    const content = readFileSync(gitPath, "utf-8");
+    const match = content.match(/^gitdir:\s*(.+)$/m);
+    return match ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Detect if repository is in a git operation state where running
+ * checks could interfere. Uses file-based detection for speed and reliability.
+ */
+function detectGitOperation(projectRoot) {
+  const gitDir = getGitDir(projectRoot);
+  if (!gitDir) return null;
+
+  // Modern git uses merge backend (rebase-merge), legacy uses apply backend (rebase-apply)
+  if (existsSync(path.join(gitDir, "rebase-merge"))) return "rebase";
+
+  // git am creates rebase-apply with an "applying" marker file
+  if (existsSync(path.join(gitDir, "rebase-apply", "applying"))) return "am";
+
+  // rebase --apply creates rebase-apply without "applying" marker
+  if (existsSync(path.join(gitDir, "rebase-apply"))) return "rebase";
+
+  // Other operations - check their HEAD files
+  if (existsSync(path.join(gitDir, "BISECT_LOG"))) return "bisect";
+  if (existsSync(path.join(gitDir, "CHERRY_PICK_HEAD"))) return "cherryPick";
+  if (existsSync(path.join(gitDir, "REVERT_HEAD"))) return "revert";
+  if (existsSync(path.join(gitDir, "MERGE_HEAD"))) return "merge";
+
+  return null;
+}
+
+/**
+ * Check if quality checks should be skipped for the current git operation.
+ */
+function shouldSkipForGitOperation(config, projectRoot) {
+  const operation = detectGitOperation(projectRoot);
+  if (!operation) return { skip: false };
+
+  const skipConfig = config?.git ?? {};
+  const shouldSkip = skipConfig[operation] ?? DEFAULT_SKIP_OPERATIONS[operation];
+
+  return { skip: shouldSkip, operation };
 }
 
 // =============================================================================
@@ -253,7 +251,6 @@ function truncateOutput(output, lines) {
 
 const parsers = {
   ruff(output) {
-    // Ruff format: path/file.py:10:5: E501 Line too long
     const results = [];
     const lines = output.split("\n").filter((l) => l.trim());
 
@@ -273,8 +270,6 @@ const parsers = {
   },
 
   ty(output) {
-    // ty format: error[rule-name]: Message
-    //   --> path/file.py:10:5
     const results = [];
     const lines = output.split("\n");
 
@@ -308,7 +303,6 @@ const parsers = {
   },
 
   eslint(output) {
-    // ESLint format: /path/file.ts:10:5 - error message (rule-name)
     const results = [];
     const lines = output.split("\n").filter((l) => l.trim());
 
@@ -328,7 +322,6 @@ const parsers = {
   },
 
   tsc(output) {
-    // TSC format: path/file.ts(10,5): error TS2345: Message
     const results = [];
     const lines = output.split("\n").filter((l) => l.trim());
 
@@ -348,7 +341,6 @@ const parsers = {
   },
 
   prettier(output) {
-    // Prettier outputs file path if check fails, no structured diagnostics
     if (output.includes("would be reformatted") || output.trim()) {
       return [{ message: "File needs formatting", severity: "error" }];
     }
@@ -356,7 +348,6 @@ const parsers = {
   },
 
   biome(output) {
-    // Biome format: path/file.ts:10:5 lint/rule message
     const results = [];
     const lines = output.split("\n").filter((l) => l.trim());
 
@@ -376,7 +367,6 @@ const parsers = {
   },
 
   generic(output) {
-    // Generic parser - just return the output as a single message if non-empty
     const trimmed = output.trim();
     if (trimmed) {
       return [{ message: truncateOutput(trimmed, 5), severity: "error" }];
@@ -385,9 +375,6 @@ const parsers = {
   },
 
   jsonl(output) {
-    // JSONL format: one JSON object per line
-    // { "file": "path/to/file.md", "line": 114, "message": "error description" }
-    // { "file": "path/to/file.md", "line": 200, "column": 5, "message": "error with column" }
     const results = [];
     const lines = output.split("\n").filter((l) => l.trim());
 
@@ -410,21 +397,13 @@ const parsers = {
   },
 
   gcc(output) {
-    // GCC-style format: file:line:col: severity: message
-    // Used by: clang-format, clang-tidy, gcc, shellcheck --format=gcc
-    // Examples:
-    //   src/main.cpp:10:5: error: expected ';' after expression
-    //   script.sh:15:1: warning: Use $(...) instead of `...` [SC2006]
     const results = [];
     const lines = output.split("\n").filter((l) => l.trim());
 
     for (const line of lines) {
-      // Match: file:line:col: severity: message
-      // Also handles: file:line:col: severity: message [CODE]
       const match = line.match(/:(\d+):(\d+):\s*(error|warning|note|info):\s*(.+)$/i);
       if (match) {
         const message = match[4].trim();
-        // Extract rule code if present (e.g., [SC2006] or [-Wclang-format-violations])
         const ruleMatch = message.match(/\[([^\]]+)\]$/);
         results.push({
           line: parseInt(match[1], 10),
@@ -441,8 +420,6 @@ const parsers = {
 
 /**
  * Create a parser function from an inline regex config
- * @param {object} config - { pattern: string, severity?: string }
- * @returns {function} Parser function
  */
 function createRegexParser(config) {
   const regex = new RegExp(config.pattern, "gm");
@@ -453,7 +430,6 @@ function createRegexParser(config) {
     const lines = output.split("\n");
 
     for (const line of lines) {
-      // Reset regex lastIndex for each line
       regex.lastIndex = 0;
       const match = regex.exec(line);
 
@@ -475,25 +451,20 @@ function createRegexParser(config) {
 
 /**
  * Get parser function for a check config
- * @param {string|object} parserConfig - Parser name or inline config
- * @returns {function} Parser function
  */
 function getParser(parserConfig) {
   if (!parserConfig) {
     return parsers.generic;
   }
 
-  // Predefined parser
   if (typeof parserConfig === "string") {
     return parsers[parserConfig] || parsers.generic;
   }
 
-  // Inline regex parser
   if (typeof parserConfig === "object" && parserConfig.pattern) {
     try {
       return createRegexParser(parserConfig);
     } catch (err) {
-      // Invalid regex - fall back to generic
       return parsers.generic;
     }
   }
@@ -508,7 +479,6 @@ function getParser(parserConfig) {
 function runCheck(check, filePath, projectRoot) {
   const diagnostics = [];
 
-  // Check if command exists
   if (!commandExists(check.command)) {
     diagnostics.push({
       message: `${check.command} not found - skipping ${check.name}`,
@@ -518,7 +488,6 @@ function runCheck(check, filePath, projectRoot) {
     return diagnostics;
   }
 
-  // Replace $FILE placeholder in args
   const args = check.args.map((arg) =>
     arg === "$FILE" ? filePath : arg.replace("$FILE", filePath)
   );
@@ -528,7 +497,6 @@ function runCheck(check, filePath, projectRoot) {
   if (!result.success) {
     const combined = result.stdout + result.stderr;
 
-    // Skip if tool not found in output
     if (combined.includes("not found") || combined.includes("command not found")) {
       return diagnostics;
     }
@@ -545,7 +513,6 @@ function runCheck(check, filePath, projectRoot) {
         });
       }
     } else {
-      // Fallback: include raw output
       diagnostics.push({
         message: truncateOutput(combined, 3),
         source: check.name,
@@ -560,10 +527,6 @@ function runCheck(check, filePath, projectRoot) {
 // =============================================================================
 // Output Helpers
 // =============================================================================
-
-function outputJson(output) {
-  console.log(JSON.stringify(output));
-}
 
 function formatDiagnostic(d) {
   const icon = d.severity === "error" ? "X" : "!";
@@ -582,65 +545,96 @@ function formatDiagnosticsBlock(diags, fileName) {
 }
 
 // =============================================================================
+// Validate config file directly (no subprocess)
+// =============================================================================
+
+function validateConfigFile(configPath) {
+  let content;
+  try {
+    content = fs.readFileSync(configPath, "utf-8");
+  } catch {
+    return { valid: false, errors: [{ path: "", message: `Cannot read ${configPath}` }] };
+  }
+
+  let config;
+  try {
+    config = JSON.parse(content);
+  } catch (err) {
+    return { valid: false, errors: [{ path: "", message: `Invalid JSON: ${err.message}` }] };
+  }
+
+  const results = validateConfig(config);
+
+  if (results.errors.length === 0) {
+    return { valid: true, errors: [] };
+  }
+
+  const errors = results.errors.map((msg) => {
+    const colonIndex = msg.indexOf(": ");
+    if (colonIndex > 0) {
+      return { path: msg.substring(0, colonIndex), message: msg.substring(colonIndex + 2) };
+    }
+    return { path: "", message: msg };
+  });
+
+  return { valid: false, errors };
+}
+
+// =============================================================================
 // Main
 // =============================================================================
 
-async function main() {
-  let inputData = "";
-  for await (const chunk of process.stdin) {
-    inputData += chunk;
-  }
-
-  const input = JSON.parse(inputData);
+export async function run() {
+  const input = await readStdinJson();
   const filePath = input.tool_input?.file_path;
 
   // No file path provided - skip silently
   if (!filePath) {
-    outputJson({ systemMessage: "[checkmate] No file path provided" });
-    process.exit(0);
+    pass("No file path provided");
   }
 
   // File doesn't exist - skip silently
   if (!fs.existsSync(filePath)) {
-    outputJson({ systemMessage: `[checkmate] File not found: ${filePath}` });
-    process.exit(0);
+    pass(`File not found: ${filePath}`);
   }
 
   // Load config
   const { config, projectRoot } = loadConfig();
   if (!projectRoot) {
-    outputJson({
-      systemMessage: "[checkmate] CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment",
-    });
-    process.exit(0);
+    pass("CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment");
   }
 
   const isConfigFile = filePath.endsWith(".claude/checkmate.json");
 
   // No config and not editing the config file - nothing to do
   if (!config && !isConfigFile) {
-    outputJson({
-      systemMessage: "[checkmate] disabled (run /checkmate:init to configure)",
-    });
-    process.exit(0);
+    pass("disabled (run /checkmate:init to configure)");
+  }
+
+  // Skip during certain git operations
+  const gitCheck = shouldSkipForGitOperation(config, projectRoot);
+  if (gitCheck.skip) {
+    pass(`skipped (git ${gitCheck.operation} in progress)`);
   }
 
   const diagnostics = [];
 
   // Run configured checks (if config exists and checks are configured)
+  // Results track declaration order: { name, passed }
   let checkResult = { checks: [], reason: "no-config" };
-  const passedChecks = [];
-  const failedChecks = [];
+  const results = [];
+  let hasFailures = false;
 
   if (config) {
     checkResult = getChecksForFile(config, filePath, projectRoot);
     for (const check of checkResult.checks) {
       const checkDiagnostics = runCheck(check, filePath, projectRoot);
       if (checkDiagnostics.length > 0) {
-        failedChecks.push(check.name);
+        results.push({ name: check.name, passed: false });
+        hasFailures = true;
         diagnostics.push(...checkDiagnostics);
       } else {
-        passedChecks.push(check.name);
+        results.push({ name: check.name, passed: true });
       }
     }
   }
@@ -649,7 +643,8 @@ async function main() {
   if (isConfigFile) {
     const validationResult = validateConfigFile(filePath);
     if (!validationResult.valid) {
-      failedChecks.push("schema");
+      results.push({ name: "schema", passed: false });
+      hasFailures = true;
       for (const err of validationResult.errors) {
         diagnostics.push({
           message: err.message,
@@ -659,44 +654,28 @@ async function main() {
         });
       }
     } else {
-      passedChecks.push("schema");
+      results.push({ name: "schema", passed: true });
     }
   }
 
   const fileName = path.basename(filePath);
+  const statusLine = results
+    .map((r) => `${r.passed ? "\u2705" : "\u274C"} ${r.name}`)
+    .join(" ");
 
   // Any diagnostics found - block
-  if (diagnostics.length > 0) {
+  if (hasFailures) {
     const reason = formatDiagnosticsBlock(diagnostics, fileName);
-    const statusParts = [
-      ...passedChecks.map((name) => `✅ ${name}`),
-      ...failedChecks.map((name) => `❌ ${name}`),
-    ];
-
-    outputJson({
-      decision: "block",
-      reason,
-      systemMessage: `[checkmate] ${statusParts.join(" ")}`,
-    });
-    process.exit(0);
+    block(reason, statusLine);
   }
 
   // Determine if any checks ran and provide appropriate message
   const checksRan = checkResult.checks.length > 0;
 
   if (!checksRan && !isConfigFile) {
-    const message = checkResult.reason === "path-excluded" ? "excluded" : "skipped";
-    outputJson({ systemMessage: `[checkmate] ${message}` });
-    process.exit(0);
+    pass(checkResult.reason === "path-excluded" ? "excluded" : "skipped");
   }
 
   // All clean - approve
-  const statusParts = passedChecks.map((name) => `✅ ${name}`);
-  outputJson({ systemMessage: `[checkmate] ${statusParts.join(" ")}` });
-  process.exit(0);
+  pass(statusLine);
 }
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});

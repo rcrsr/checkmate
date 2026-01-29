@@ -1,6 +1,5 @@
-#!/usr/bin/env node
 /**
- * checkmate-review.mjs
+ * post-task.mjs
  * PostToolUse hook: Handle Task completions with configurable actions
  *
  * Reads checkmate.json from .claude/ directory to determine what action
@@ -14,35 +13,7 @@
  * Exit codes: 0 = continue (with optional block decision)
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
-
-// =============================================================================
-// Config Loading
-// =============================================================================
-
-function getProjectRoot() {
-  return process.env.CLAUDE_PROJECT_DIR || null;
-}
-
-function loadConfig() {
-  const projectRoot = getProjectRoot();
-  if (!projectRoot) {
-    return { config: null, projectRoot: null };
-  }
-
-  const configPath = path.join(projectRoot, ".claude", "checkmate.json");
-  if (!fs.existsSync(configPath)) {
-    return { config: null, projectRoot };
-  }
-
-  try {
-    const content = fs.readFileSync(configPath, "utf-8");
-    return { config: JSON.parse(content), projectRoot };
-  } catch (err) {
-    return { config: null, projectRoot };
-  }
-}
+import { loadConfig, readStdinJson, pass, block } from "./lib.mjs";
 
 // =============================================================================
 // Task Matching
@@ -57,12 +28,10 @@ function loadConfig() {
  * @returns {{ matches: boolean, capture?: string }} Match result with optional capture
  */
 function matchPattern(subagentType, pattern) {
-  // Exact match
   if (pattern === subagentType) {
     return { matches: true };
   }
 
-  // Wildcard pattern: * matches any prefix
   if (pattern.startsWith("*")) {
     const suffix = pattern.slice(1);
     if (subagentType.endsWith(suffix)) {
@@ -125,24 +94,11 @@ function applySubstitutions(template, capture) {
 }
 
 // =============================================================================
-// Output Helpers
-// =============================================================================
-
-function outputJson(output) {
-  console.log(JSON.stringify(output));
-}
-
-// =============================================================================
 // Main
 // =============================================================================
 
-async function main() {
-  let inputData = "";
-  for await (const chunk of process.stdin) {
-    inputData += chunk;
-  }
-
-  const input = JSON.parse(inputData);
+export async function run() {
+  const input = await readStdinJson();
   const toolName = input.tool_name;
   const subagentType = input.tool_input?.subagent_type;
 
@@ -174,38 +130,25 @@ async function main() {
   }
 
   const { rule, capture } = match;
-
   const ruleName = rule.name;
 
   // Skip action
   if (rule.action === "skip") {
-    outputJson({ systemMessage: `[checkmate] ✅ ${ruleName}` });
-    process.exit(0);
+    pass(`\u2705 ${ruleName}`);
   }
 
   // Message action - non-blocking systemMessage
   if (rule.action === "message") {
-    const message = applySubstitutions(rule.message || "", capture);
-    outputJson({ systemMessage: `[checkmate] ℹ️ ${ruleName}` });
-    process.exit(0);
+    applySubstitutions(rule.message || "", capture);
+    pass(`\u2139\uFE0F ${ruleName}`);
   }
 
   // Review action - blocking
   if (rule.action === "review") {
-    const message = applySubstitutions(rule.message || "", capture);
-    outputJson({
-      decision: "block",
-      reason: message,
-      systemMessage: `[checkmate] 🔍 ${ruleName}`,
-    });
-    process.exit(0);
+    const reason = applySubstitutions(rule.message || "", capture);
+    block(reason, `\uD83D\uDD0D ${ruleName}`);
   }
 
   // Unknown action - skip silently
   process.exit(0);
 }
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
