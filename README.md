@@ -10,7 +10,7 @@ Automated code quality enforcement for Claude Code. Runs your linters, formatter
 - [Automatic Configuration](#automatic-configuration)
 - [Manual Configuration](#manual-configuration)
 - [Predefined Parsers](#predefined-parsers)
-- [Tool Selection](#tool-selection)
+- [Tool Guidelines](#tool-guidelines)
 - [Task Reviewers](#task-reviewers)
 - [Git Operations](#git-operations)
 - [Skills](#skills)
@@ -29,7 +29,7 @@ Automated code quality enforcement for Claude Code. Runs your linters, formatter
 
 When Claude edits a file, the PostToolUse hook fires and loads `.claude/checkmate.json`. Checkmate matches the file path to an environment, retrieves the checks for that extension, and runs each tool in sequence. Output is parsed into structured diagnostics. If errors are found, Claude is blocked until it fixes them. Clean files pass silently.
 
-Checkmate reports errors but never auto-fixes files. Modifying files directly would desynchronize Claude Code's internal state. It would also cause false positives during non-atomic changes -for example, flagging an unused import before Claude adds the code that uses it.
+By default, Checkmate ensures that tools report errors without auto-fixing files. Auto-fix tools desynchronize Claude Code's internal state and cause false positives during non-atomic changes—for example, flagging an unused import before Claude adds the code that uses it.
 
 ## Installation
 
@@ -183,15 +183,24 @@ Required fields: `file`, `line`, `message`. Optional: `column`.
 | `gcc` | clang-format, clang-tidy, shellcheck --format=gcc |
 | `generic` | Any tool (raw output) |
 
-## Tool Selection
+## Tool Guidelines
 
-Avoid whole-project tools that scan all files on every edit. Target <2 seconds per invocation.
+**Keep tools fast.** Target <2 seconds per invocation. Avoid whole-project scans on every edit.
 
 | Avoid | Use Instead |
 |-------|-------------|
 | `tsc` | `tsc-files` or `eslint` with `@typescript-eslint` |
 | `mypy` | `mypy --follow-imports=skip` |
 | `cargo check` | `clippy` on single file |
+
+**Disable auto-fix.** Use `--check` or `--dry-run` flags. Auto-fix desynchronizes Claude Code's file state.
+
+| Tool | Check-only Flag |
+|------|-----------------|
+| `ruff format` | `--check` |
+| `prettier` | `--check` |
+| `rustfmt` | `--check` |
+| `clang-format` | `--dry-run -Werror` |
 
 ## Task Reviewers
 
