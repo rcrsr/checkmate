@@ -274,7 +274,7 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
 | `ruff` | Ruff linter | `path:line:col: CODE message` |
 | `ty` | ty type checker | Multi-line Rust-style errors |
 | `eslint` | ESLint (with `@typescript-eslint` for type checks) | `path:line:col severity message rule` |
-| `tsc-files` | tsc-files (per-file TypeScript) | `path(line,col): error TScode: message` |
+| `tsc` | tsc, tsc-files (TypeScript) | `path(line,col): error TScode: message` |
 | `biome` | Biome | `path:line:col rule message` |
 | `prettier` | Any format checker | Pass/fail only (non-empty = fail) |
 | `jsonl` | JSON Lines output | `{"file":"x.ts","line":10,"message":"err"}` |
@@ -400,7 +400,7 @@ Shell scripts:
         ".ts,.tsx": [
           { "name": "prettier", "command": "npx", "args": ["prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true },
           { "name": "eslint", "command": "npx", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true },
-          { "name": "tsc-files", "command": "npx", "args": ["tsc-files", "--noEmit", "$FILE"], "parser": "tsc-files", "_auto": true }
+          { "name": "tsc-files", "command": "npx", "args": ["tsc-files", "--noEmit", "$FILE"], "parser": "tsc", "_auto": true }
         ],
         ".json,.md": [
           { "name": "prettier", "command": "npx", "args": ["prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true }

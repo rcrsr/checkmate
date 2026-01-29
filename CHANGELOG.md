@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-01-29
+
+### Fixed
+
+- Document `_auto` field in README Check schema table
+- Fix `tsc-files` parser references in SKILL.md (use `tsc` parser)
+- Update example to use `tsc-files` instead of `tsc` per README guidance
+- Standardize skill invocation syntax in README
+
 ## [2.1.0] - 2026-01-29
 
 ### Added

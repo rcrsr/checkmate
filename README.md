@@ -2,22 +2,34 @@
 
 Automated code quality enforcement for Claude Code. Runs your linters, formatters, and type checkers after every edit. Routes completed subagent work to reviewer agents. Catches errors before they compound.
 
+## Table of Contents
+
+- [Why Checkmate?](#why-checkmate)
+- [How It Works](#how-it-works)
+- [Installation](#installation)
+- [Automatic Configuration](#automatic-configuration)
+- [Manual Configuration](#manual-configuration)
+- [Predefined Parsers](#predefined-parsers)
+- [Tool Selection](#tool-selection)
+- [Task Reviewers](#task-reviewers)
+- [Git Operations](#git-operations)
+- [Skills](#skills)
+- [Validation](#validation)
+
 ## Why Checkmate?
 
 - **Immediate feedback loop.** Claude edits a file → checks run automatically → errors block until fixed. No context lost. No forgotten linting steps.
 - **Task review gates.** Subagent completes work → reviewer agent triggered automatically. Map `*-engineer` → `*-reviewer` with wildcard patterns.
-- **Monorepo-native.** Different tools per directory. Python API with uv, TypeScript frontend with pnpm, C++ engine with clang-format, shell scripts with shellcheck—all in one config.
-- **Zero-config start.** Run `/checkmate:checkmate-init` and it discovers your toolchain: detects package managers (pnpm/npm/yarn/bun), environment managers (uv/poetry/pipenv/conda), and available linters.
-- **Works with any tool.** Predefined parsers for common tools. Custom regex parsers for everything else. If it outputs errors, checkmate can parse it.
-- **Respects git operations.** Skips checks during rebase, bisect, and am operations to avoid corrupting repo state.
+- **Monorepo-native.** Different tools per directory. Python API with uv, TypeScript frontend with pnpm, C++ engine with clang-format -all in one config.
+- **Zero-config start.** Run `/checkmate:init` and it discovers your toolchain.
+- **Works with any tool.** Predefined parsers for common tools. Custom regex parsers for everything else.
+- **Respects git operations.** Skips checks during rebase, bisect, and am to avoid corrupting repo state.
 
 ## How It Works
 
-When Claude edits a file, the PostToolUse hook fires and loads `.claude/checkmate.json`. Checkmate matches the file path to an environment, retrieves the checks configured for that extension, and runs each tool in sequence. Output is parsed into structured diagnostics. If errors are found, Claude is blocked until it fixes them. Clean files pass silently.
+When Claude edits a file, the PostToolUse hook fires and loads `.claude/checkmate.json`. Checkmate matches the file path to an environment, retrieves the checks for that extension, and runs each tool in sequence. Output is parsed into structured diagnostics. If errors are found, Claude is blocked until it fixes them. Clean files pass silently.
 
-Checkmate reports errors but never auto-fixes files. Modifying files directly would desynchronize Claude Code's internal state. It would also cause false positives during non-atomic changes. For example, removing an unused import prematurely before Claude adds the code that uses it.
-
-Checkmate is skipping files during git operations that modify code history, such as rebase, am, and bisect. These operations apply multiple patches sequentially. Running formatters or linters in between would cause conflicts or corrupt historical state. You can override the defaults in the config if needed.
+Checkmate reports errors but never auto-fixes files. Modifying files directly would desynchronize Claude Code's internal state. It would also cause false positives during non-atomic changes -for example, flagging an unused import before Claude adds the code that uses it.
 
 ## Installation
 
@@ -30,15 +42,21 @@ Checkmate is skipping files during git operations that modify code history, such
 claude --plugin-dir /path/to/checkmate
 ```
 
-## Quick Start
+## Automatic Configuration
+
+The `checkmate-init` skill discovers your tools and creates `.claude/checkmate.json`. Done.
 
 ```
-/checkmate:checkmate-init
+/checkmate-init
 ```
 
-Discovers your tools, creates `.claude/checkmate.json`. Done.
+Use `checkmate-refresh` to sync config with installed tools:
 
-## Configuration
+```
+/checkmate:checkmate-refresh
+```
+
+## Manual Configuration
 
 ### Simple Project
 
@@ -50,10 +68,10 @@ Discovers your tools, creates `.claude/checkmate.json`. Done.
       "paths": ["."],
       "checks": {
         ".py": [
-          { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff", "_auto": true }
+          { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff" }
         ],
         ".ts,.tsx": [
-          { "name": "eslint", "command": "pnpm", "args": ["exec", "eslint", "$FILE"], "parser": "eslint", "_auto": true }
+          { "name": "eslint", "command": "pnpm", "args": ["exec", "eslint", "$FILE"], "parser": "eslint" }
         ]
       }
     }
@@ -71,7 +89,7 @@ Discovers your tools, creates `.claude/checkmate.json`. Done.
       "paths": ["apps/web", "packages/ui"],
       "checks": {
         ".ts,.tsx": [
-          { "name": "eslint", "command": "pnpm", "args": ["exec", "eslint", "$FILE"], "parser": "eslint", "_auto": true }
+          { "name": "eslint", "command": "pnpm", "args": ["exec", "eslint", "$FILE"], "parser": "eslint" }
         ]
       }
     },
@@ -80,7 +98,7 @@ Discovers your tools, creates `.claude/checkmate.json`. Done.
       "paths": ["services/api"],
       "checks": {
         ".py": [
-          { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff", "_auto": true }
+          { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff" }
         ]
       }
     }
@@ -88,11 +106,12 @@ Discovers your tools, creates `.claude/checkmate.json`. Done.
 }
 ```
 
-First matching environment wins. Specific paths before general.
+First matching environment wins. Put specific paths before general ones.
 
 ### Schema Reference
 
 **Environment:**
+
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | No | Descriptive label |
@@ -101,6 +120,7 @@ First matching environment wins. Specific paths before general.
 | `checks` | Yes | Extension → check array mapping |
 
 **Check:**
+
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | Yes | Display name in diagnostics |
@@ -108,11 +128,11 @@ First matching environment wins. Specific paths before general.
 | `args` | Yes | Arguments; `$FILE` = file path |
 | `parser` | No | Predefined name or regex object |
 | `maxDiagnostics` | No | Max errors shown (default: 5) |
-| `_auto` | No | Managed by `/checkmate:checkmate-refresh` |
+| `_auto` | No | Marks auto-discovered checks (boolean) |
 
 ### Custom Parser
 
-For tools without predefined parsers:
+For tools without predefined parsers, use a regex with named capture groups:
 
 ```json
 {
@@ -128,13 +148,12 @@ For tools without predefined parsers:
 
 Named groups: `line`, `column`, `message`, `rule`, `severity`.
 
-### JSONL Parser (Custom Tools)
+### JSONL Parser (recommended for Custom Tools)
 
-Building a custom linter or wrapper script? Output JSON Lines for structured diagnostics:
+For custom scripts, output JSON Lines for structured diagnostics:
 
 ```bash
 #!/bin/bash
-# my-checker.sh - outputs JSONL
 echo '{"file":"src/app.ts","line":10,"message":"Missing return type"}'
 echo '{"file":"src/app.ts","line":25,"column":8,"message":"Unused variable"}'
 ```
@@ -148,7 +167,7 @@ echo '{"file":"src/app.ts","line":25,"column":8,"message":"Unused variable"}'
 }
 ```
 
-JSONL format: one JSON object per line with `file`, `line`, `message` (required) and `column` (optional).
+Required fields: `file`, `line`, `message`. Optional: `column`.
 
 ## Predefined Parsers
 
@@ -160,15 +179,23 @@ JSONL format: one JSON object per line with `file`, `line`, `message` (required)
 | `tsc` | TypeScript compiler |
 | `prettier` | prettier, biome format |
 | `biome` | biome lint |
-| `jsonl` | JSON Lines output tools (preferred for custom tool)|
-| `gcc` | clang-format, clang-tidy, shellcheck --format=gcc, gcc |
+| `jsonl` | Custom tools with JSON Lines output |
+| `gcc` | clang-format, clang-tidy, shellcheck --format=gcc |
 | `generic` | Any tool (raw output) |
+
+## Tool Selection
+
+Avoid whole-project tools that scan all files on every edit. Target <2 seconds per invocation.
+
+| Avoid | Use Instead |
+|-------|-------------|
+| `tsc` | `tsc-files` or `eslint` with `@typescript-eslint` |
+| `mypy` | `mypy --follow-imports=skip` |
+| `cargo check` | `clippy` on single file |
 
 ## Task Reviewers
 
-Trigger code review agents after subagent Task completions. Configure reviewers to validate implementation work.
-
-**Note:** Reviewers require manual configuration. Unlike quality checks, `/checkmate:checkmate-init` does not auto-discover agent pairs—add the `reviewers` array to your config based on your workflow. `/checkmate:checkmate-refresh` leaves the `reviewers` section untouched.
+Trigger review agents after subagent Task completions.
 
 ### Basic Setup
 
@@ -187,20 +214,20 @@ Trigger code review agents after subagent Task completions. Configure reviewers 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | Yes | Rule name shown in output |
-| `match` | Yes | Exact subagent name or wildcard pattern (`*` captures prefix) |
-| `action` | Yes | `"skip"`, `"message"` (non-blocking), or `"review"` (blocking) |
-| `message` | Yes* | Message content. Supports `*` and `$1` substitution. *Required for `message` and `review` actions |
+| `match` | Yes | Exact subagent name or wildcard pattern |
+| `action` | Yes | `skip`, `message` (non-blocking), or `review` (blocking) |
+| `message` | Yes* | Message content. *Required for `message` and `review` actions |
 
 ### Pattern Matching
 
-Rules evaluate in two passes: exact matches first, then wildcards in declaration order.
+Rules evaluate in order: exact matches first, then wildcards in declaration order.
 
 ```json
 {
   "tasks": [
     { "name": "skip-tests", "match": "test-engineer", "action": "skip" },
-    { "name": "ui-review", "match": "frontend-engineer", "action": "review", "message": "Invoke ui-reviewer to validate." },
-    { "name": "code-review", "match": "*-engineer", "action": "review", "message": "Invoke *-code-reviewer to validate." }
+    { "name": "ui-review", "match": "frontend-engineer", "action": "review", "message": "Invoke ui-reviewer." },
+    { "name": "code-review", "match": "*-engineer", "action": "review", "message": "Invoke *-code-reviewer." }
   ]
 }
 ```
@@ -208,7 +235,7 @@ Rules evaluate in two passes: exact matches first, then wildcards in declaration
 Given `subagent_type: "python-engineer"`:
 1. No exact match for "python-engineer"
 2. Wildcard `*-engineer` matches, captures `python`
-3. Message becomes "Invoke python-code-reviewer to validate."
+3. Message becomes "Invoke python-code-reviewer."
 
 ### Actions
 
@@ -218,27 +245,20 @@ Given `subagent_type: "python-engineer"`:
 | `message` | Non-blocking | `[checkmate] ℹ️ <name>` |
 | `review` | Blocking | `[checkmate] 🔍 <name>` |
 
-## Skills
+## Git Operations
 
-| Skill | Purpose |
-|-------|---------|
-| `/checkmate:checkmate-init` | Auto-discover tools, generate config |
-| `/checkmate:checkmate-refresh` | Sync config with installed tools |
+Checkmate skips checks during git operations where unintended Claude Code modifications could corrupt state:
 
-## Skipping Checks During Git Operations
-
-Checkmate skips checks during git operations where ongoing code modifications could cause problems:
-
-| Operation | Default | Why Skip? |
-|-----------|---------|-----------|
-| `rebase` | **skip** | Formatter changes conflict with subsequent patches |
-| `am` | **skip** | Sequential patch application (same as rebase) |
-| `bisect` | **skip** | Any modification corrupts historical state being tested |
-| `merge` | run | Single operation, no subsequent patches |
+| Operation | Default | Reason |
+|-----------|---------|--------|
+| `rebase` | skip | Formatter changes conflict with subsequent patches |
+| `am` | skip | Sequential patch application |
+| `bisect` | skip | Modifications corrupt historical state |
+| `merge` | run | Single operation |
 | `cherryPick` | run | Usually single commit |
 | `revert` | run | Single operation |
 
-To override defaults:
+Override defaults:
 
 ```json
 {
@@ -250,6 +270,13 @@ To override defaults:
 }
 ```
 
+## Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `/checkmate:checkmate-init` | Auto-discover tools, generate config |
+| `/checkmate:checkmate-refresh` | Sync config with installed tools |
+
 ## Validation
 
 Config auto-validates on edit. Manual check:
@@ -257,13 +284,3 @@ Config auto-validates on edit. Manual check:
 ```bash
 node scripts/checkmate.mjs validate .claude/checkmate.json
 ```
-
-## Tool Selection
-
-Avoid whole-project tools that scan all files on every edit. Target <2 seconds per invocation.
-
-| Avoid | Use Instead |
-|-------|-------------|
-| `tsc` | `tsc-files` or `eslint` with `@typescript-eslint` |
-| `mypy` | `mypy --follow-imports=skip` |
-| `cargo check` | `clippy` on single file |

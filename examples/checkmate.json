@@ -43,9 +43,9 @@
             "_auto": true
           },
           {
-            "name": "tsc",
+            "name": "tsc-files",
             "command": "pnpm",
-            "args": ["exec", "tsc", "--noEmit", "$FILE"],
+            "args": ["exec", "tsc-files", "--noEmit", "$FILE"],
             "parser": "tsc",
             "_auto": true
           }
