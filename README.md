@@ -47,7 +47,7 @@ claude --plugin-dir /path/to/checkmate
 The `checkmate-init` skill discovers your tools and creates `.claude/checkmate.json`. Done.
 
 ```
-/checkmate-init
+/checkmate:checkmate-init
 ```
 
 Use `checkmate-refresh` to sync config with installed tools:
