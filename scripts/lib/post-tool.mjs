@@ -144,13 +144,13 @@ function getChecksForFile(config, filePath, projectRoot) {
 // Git State Detection
 // =============================================================================
 
-const DEFAULT_SKIP_OPERATIONS = {
-  rebase: true,      // Formatting after commit N conflicts with patch N+1
-  am: true,          // Sequential patch application (same issue as rebase)
-  bisect: true,      // Any change corrupts historical state being tested
-  merge: false,      // Single operation, safe to format
-  cherryPick: false, // Usually single commit; user can override for multi-pick
-  revert: false,     // Single operation, safe to format
+const DEFAULT_GIT_CHECKS = {
+  rebase: false,     // Disabled: formatting after commit N conflicts with patch N+1
+  am: false,         // Disabled: sequential patch application (same issue as rebase)
+  bisect: false,     // Disabled: any change corrupts historical state being tested
+  merge: true,       // Enabled: single operation, safe to format
+  cherryPick: true,  // Enabled: usually single commit; user can override for multi-pick
+  revert: true,      // Enabled: single operation, safe to format
 };
 
 /**
@@ -208,10 +208,10 @@ function shouldSkipForGitOperation(config, projectRoot) {
   const operation = detectGitOperation(projectRoot);
   if (!operation) return { skip: false };
 
-  const skipConfig = config?.git ?? {};
-  const shouldSkip = skipConfig[operation] ?? DEFAULT_SKIP_OPERATIONS[operation];
+  const gitConfig = config?.git ?? {};
+  const enabled = gitConfig[operation] ?? DEFAULT_GIT_CHECKS[operation];
 
-  return { skip: shouldSkip, operation };
+  return { skip: !enabled, operation };
 }
 
 // =============================================================================

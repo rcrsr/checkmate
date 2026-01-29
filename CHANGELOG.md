@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-01-29
+
+### Changed
+
+- **BREAKING:** Flip git config boolean logic for intuitive semantics
+  - `true` = enabled (run checks)
+  - `false` = disabled (skip checks)
+- Rename internal `DEFAULT_SKIP_OPERATIONS` to `DEFAULT_GIT_CHECKS`
+
+### Migration
+
+Update `checkmate.json` git overrides - flip boolean values:
+```json
+// Old (2.1.1): true = skip, false = run
+{ "git": { "rebase": false } }
+
+// New (2.1.2): true = run, false = skip
+{ "git": { "rebase": true } }
+```
+
 ## [2.1.1] - 2026-01-29
 
 ### Fixed

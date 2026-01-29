@@ -251,20 +251,20 @@ Checkmate skips checks during git operations where unintended Claude Code modifi
 
 | Operation | Default | Reason |
 |-----------|---------|--------|
-| `rebase` | skip | Formatter changes conflict with subsequent patches |
-| `am` | skip | Sequential patch application |
-| `bisect` | skip | Modifications corrupt historical state |
-| `merge` | run | Single operation |
-| `cherryPick` | run | Usually single commit |
-| `revert` | run | Single operation |
+| `rebase` | disabled | Formatter changes conflict with subsequent patches |
+| `am` | disabled | Sequential patch application |
+| `bisect` | disabled | Modifications corrupt historical state |
+| `merge` | enabled | Single operation |
+| `cherryPick` | enabled | Usually single commit |
+| `revert` | enabled | Single operation |
 
-Override defaults:
+Override defaults (`true` = enabled, `false` = disabled):
 
 ```json
 {
   "git": {
-    "rebase": false,
-    "cherryPick": true
+    "rebase": true,
+    "cherryPick": false
   },
   "environments": [...]
 }
