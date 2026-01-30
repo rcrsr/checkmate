@@ -11,6 +11,7 @@ Automated code quality enforcement for Claude Code. Runs your linters, formatter
 - [Manual Configuration](#manual-configuration)
 - [Predefined Parsers](#predefined-parsers)
 - [Tool Guidelines](#tool-guidelines)
+- [Agent Delegation](#agent-delegation)
 - [Task Reviewers](#task-reviewers)
 - [Git Operations](#git-operations)
 - [Skills](#skills)
@@ -118,6 +119,7 @@ First matching environment wins. Put specific paths before general ones.
 | `paths` | Yes | Directories this environment covers |
 | `exclude` | No | Glob patterns to skip |
 | `checks` | Yes | Extension → check array mapping |
+| `agents` | No | Extension → agent name mapping |
 
 **Check:**
 
@@ -201,6 +203,51 @@ Required fields: `file`, `line`, `message`. Optional: `column`.
 | `prettier` | `--check` |
 | `rustfmt` | `--check` |
 | `clang-format` | `--dry-run -Werror` |
+
+## Subagent Delegation (EXPERIMENTAL)
+
+Force file edits through specialist subagents. Main conversation Edit/Write calls are blocked and redirected.
+
+### Basic Setup
+
+```json
+{
+  "environments": [
+    {
+      "paths": ["."],
+      "checks": {...},
+      "agents": {
+        ".mjs,.js": "javascript-engineer",
+        ".py": "python-engineer"
+      }
+    }
+  ]
+}
+```
+
+When Claude (main thread) tries to edit `app.js`, Checkmate blocks with:
+
+```
+Use javascript-engineer to modify .mjs files.
+```
+
+### Extension Patterns
+
+Keys support comma-delimited extensions (same as `checks`):
+
+| Pattern | Matches |
+|---------|---------|
+| `.py` | `.py` files |
+| `.ts,.tsx` | `.ts` and `.tsx` files |
+| `.js,.mjs,.cjs` | `.js`, `.mjs`, and `.cjs` files |
+
+### Behavior
+
+- **Main conversation**: Blocked if file extension matches an agent mapping
+- **Subagent context**: Allowed (any subagent can edit, not just the mapped one)
+- **Git operations**: Allowed (delegation skipped during rebase, bisect, etc.)
+
+This encourages structured workflows where the main Claude thread coordinates work by spawning specialist agents rather than editing files directly.
 
 ## Task Reviewers
 

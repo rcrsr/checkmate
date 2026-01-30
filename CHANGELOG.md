@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-01-29
+
+### Added
+
+- **Agent Delegation (Experimental):** Force file edits through specialist subagents
+  - New `agents` field in environment config maps extensions to subagent names
+  - Main conversation Edit/Write blocked when extension matches; must delegate to specified agent
+  - Supports comma-delimited patterns (same as `checks`): `.mjs,.js`
+  - Skipped during git operations (same as quality checks)
+  - New PreToolUse hook (`pre-tool` subcommand) handles enforcement
+
 ## [2.1.2] - 2026-01-29
 
 ### Changed

@@ -1,10 +1,11 @@
-This project is a Claude Code plugin. It uses PostToolUse hooks to run user-configured (`.claude/checkmate.json`) quality checks (Edit/Write) and task review (Task).
+This project is a Claude Code plugin. It uses PreToolUse and PostToolUse hooks to enforce agent delegation, run quality checks (Edit/Write), and trigger task reviews (Task).
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `scripts/checkmate.mjs` | Entry point, routes subcommands |
+| `scripts/lib/pre-tool.mjs` | Agent delegation: block main thread, require subagent |
 | `scripts/lib/post-tool.mjs` | Quality hook: git detection, check execution, parsers |
 | `scripts/lib/post-task.mjs` | Task hook: subagent matching, review triggers |
 | `scripts/lib/validate.mjs` | Config schema validation |
@@ -12,7 +13,9 @@ This project is a Claude Code plugin. It uses PostToolUse hooks to run user-conf
 
 ## Hook Flow
 
-**Quality checks:** Edit/Write → load config → detect git state (skip if rebase/bisect/am) → run checks → block on errors.
+**Agent delegation:** Edit/Write (PreToolUse) → load config → match extension to `agents` → if main thread and no git op → deny with agent name.
+
+**Quality checks:** Edit/Write (PostToolUse) → load config → detect git state (skip if rebase/bisect/am) → run checks → block on errors.
 
 **Task review:** Task completion → match `subagent_type` against rules → skip/message/review action.
 

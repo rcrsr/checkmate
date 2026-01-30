@@ -1,7 +1,7 @@
 {
   "name": "checkmate",
   "description": "Automated code quality checks on file edits with configurable linters and formatters",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "author": {
     "name": "Andre Bremer",
     "url": "https://andrebremer.com"

@@ -130,6 +130,36 @@ function validateChecks(checks, envName) {
   return errors;
 }
 
+function validateAgents(agents, envName) {
+  const errors = [];
+
+  if (typeof agents !== "object" || agents === null) {
+    errors.push(`environments[${envName}].agents: must be an object`);
+    return errors;
+  }
+
+  for (const [key, agentName] of Object.entries(agents)) {
+    // Validate extension key (supports comma-delimited like ".ts,.tsx")
+    const extensions = key.split(",").map((e) => e.trim());
+    for (const ext of extensions) {
+      if (!ext.startsWith(".")) {
+        errors.push(
+          `environments[${envName}].agents: extension "${ext}" in key "${key}" should start with "."`
+        );
+      }
+    }
+
+    // Validate agent name
+    if (typeof agentName !== "string" || agentName.trim() === "") {
+      errors.push(
+        `environments[${envName}].agents["${key}"]: agent name must be a non-empty string`
+      );
+    }
+  }
+
+  return errors;
+}
+
 function validateEnvironmentArray(environments) {
   const errors = [];
   const names = new Set();
@@ -188,6 +218,11 @@ function validateEnvironmentArray(environments) {
 
     // Required: checks
     errors.push(...validateChecks(env.checks, envName));
+
+    // Optional: agents (object mapping extension patterns to agent names)
+    if (env.agents !== undefined) {
+      errors.push(...validateAgents(env.agents, envName));
+    }
   }
 
   return errors;
