@@ -32,6 +32,8 @@ When Claude edits a file, the PostToolUse hook fires and loads `.claude/checkmat
 
 By default, Checkmate ensures that tools report errors without auto-fixing files. Auto-fix tools desynchronize Claude Code's internal state and cause false positives during non-atomic changes—for example, flagging an unused import before Claude adds the code that uses it.
 
+See this [article](https://andrebremer.com/articles/you-should-be-using-checkmate) for a deep dive.
+
 ## Installation
 
 ```bash
