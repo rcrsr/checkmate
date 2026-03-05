@@ -206,7 +206,7 @@ Required fields: `file`, `line`, `message`. Optional: `column`.
 | `rustfmt` | `--check` |
 | `clang-format` | `--dry-run -Werror` |
 
-## Subagent Delegation (EXPERIMENTAL)
+## Agent Delegation
 
 Force file edits through specialist subagents. Main conversation Edit/Write calls are blocked and redirected.
 
@@ -246,7 +246,8 @@ Keys support comma-delimited extensions (same as `checks`):
 ### Behavior
 
 - **Main conversation**: Blocked if file extension matches an agent mapping
-- **Subagent context**: Allowed (any subagent can edit, not just the mapped one)
+- **Authorized subagent**: Allowed when `agent_type` matches the configured agent name
+- **Other subagents**: Allowed (any subagent can edit)
 - **Git operations**: Allowed (delegation skipped during rebase, bisect, etc.)
 
 This encourages structured workflows where the main Claude thread coordinates work by spawning specialist agents rather than editing files directly.

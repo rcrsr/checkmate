@@ -11,6 +11,18 @@
  *   - review: blocking, requires review
  *
  * Exit codes: 0 = continue (with optional block decision)
+ *
+ * TODO(hooks-review):
+ * 1. BUG: line ~142 — applySubstitutions() result is discarded; the substituted
+ *    message is never passed to pass(). Only the rule name is shown to the model.
+ * 2. The "Task" matcher in hooks.json and the toolName === "Task" check here
+ *    depend on the internal tool name staying "Task". Claude Code's user-facing
+ *    tool is now "Agent" with a subagent_type param. If the internal name changes,
+ *    this hook stops firing silently. Monitor Claude Code changelog for tool renames.
+ * 3. Every pass() emits a systemMessage, adding tokens to model context even on
+ *    no-op paths ("no config", "subagent context"). Consider silent exit (no output)
+ *    for cases where checkmate has nothing meaningful to report.
+ *    See: conduct CLAUDE-CODE-CHANGELOG-REVIEW.md — additionalContext vs systemMessage.
  */
 
 import { loadConfig, readStdinJson, pass, block } from "./lib.mjs";

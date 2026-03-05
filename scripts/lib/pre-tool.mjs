@@ -8,8 +8,7 @@
  * Exit codes: 0 = continue (pass or deny emitted via stdout)
  */
 
-import { createReadStream, existsSync, statSync, readFileSync } from "node:fs";
-import { createInterface } from "node:readline";
+import { existsSync, statSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { loadConfig, readStdinJson, pass, outputJson } from "./lib.mjs";
 
@@ -139,43 +138,6 @@ function detectGitOperation(projectRoot) {
 }
 
 // =============================================================================
-// Transcript Parsing
-// =============================================================================
-
-/**
- * Check if tool call originated from main conversation (no parent Task).
- * Returns true if main thread, false if inside a subagent.
- */
-async function isMainConversation(toolUseId, transcriptPath) {
-  if (!toolUseId || !transcriptPath || !existsSync(transcriptPath)) {
-    // Can't determine - fail open (allow the edit)
-    return false;
-  }
-
-  const rl = createInterface({
-    input: createReadStream(transcriptPath),
-    crlfDelay: Infinity,
-  });
-
-  let parentToolUseID = null;
-
-  for await (const line of rl) {
-    if (line.includes(toolUseId)) {
-      try {
-        const parsed = JSON.parse(line);
-        parentToolUseID = parsed.parentToolUseID || null;
-      } catch {
-        // Not valid JSON, continue
-      }
-      break;
-    }
-  }
-
-  // No parent = main conversation
-  return parentToolUseID === null;
-}
-
-// =============================================================================
 // Hook Output
 // =============================================================================
 
@@ -201,8 +163,6 @@ export async function run() {
   const input = await readStdinJson();
 
   const toolName = input.tool_name;
-  const toolUseId = input.tool_use_id;
-  const transcriptPath = input.transcript_path;
   const filePath = input.tool_input?.file_path;
 
   // Only handle Edit and Write
@@ -233,9 +193,11 @@ export async function run() {
     pass(`git ${gitOp} in progress`);
   }
 
-  // Check if this is main conversation
-  const isMain = await isMainConversation(toolUseId, transcriptPath);
-  if (!isMain) {
+  // Check if this is the authorized subagent or any subagent
+  if (input.agent_type === requiredAgent) {
+    pass("authorized agent");
+  }
+  if (input.agent_type) {
     pass("subagent context");
   }
 

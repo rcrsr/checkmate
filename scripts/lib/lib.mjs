@@ -49,6 +49,12 @@ export function outputJson(obj) {
 /**
  * Emit a non-blocking system message and exit.
  * @param {string} message - Text after the [checkmate] prefix
+ *
+ * TODO(hooks-review): pass() emits systemMessage on every call, including no-op
+ * paths ("no config", "skipped", "subagent context"). Each systemMessage adds
+ * tokens to model context. Consider: (a) silent exit (no stdout) for no-op cases,
+ * or (b) a separate silentPass() that exits without output. Only emit systemMessage
+ * when checkmate has actionable information (check results, status lines).
  */
 export function pass(message) {
   outputJson({ systemMessage: `[checkmate] ${message}` });
