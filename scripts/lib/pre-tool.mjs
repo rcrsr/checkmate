@@ -203,5 +203,5 @@ export async function run() {
 
   // Main conversation trying to edit protected file type - deny
   const ext = path.extname(filePath);
-  deny(`Use ${requiredAgent} to modify ${ext} files.`);
+  deny(`You must use ${requiredAgent} to modify ${ext} files. Batch and delegate all pending changes for files of this type.`);
 }
