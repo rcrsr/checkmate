@@ -13,8 +13,7 @@
  * Exit codes: 0 = continue (with optional block decision)
  *
  * TODO(hooks-review):
- * 1. BUG: line ~142 — applySubstitutions() result is discarded; the substituted
- *    message is never passed to pass(). Only the rule name is shown to the model.
+ * 1. RESOLVED: applySubstitutions() result now passed to pass() in v2.2.2.
  * 2. RESOLVED: matcher and guard updated from "Task" to "Agent" in v2.2.2.
  *    Monitor Claude Code changelog for future tool renames.
  * 3. Every pass() emits a systemMessage, adding tokens to model context even on
@@ -150,8 +149,8 @@ export async function run() {
 
   // Message action - non-blocking systemMessage
   if (rule.action === "message") {
-    applySubstitutions(rule.message || "", capture);
-    pass(`\u2139\uFE0F ${ruleName}`);
+    const msg = applySubstitutions(rule.message || "", capture);
+    pass(msg ? `\u2139\uFE0F ${ruleName}: ${msg}` : `\u2139\uFE0F ${ruleName}`);
   }
 
   // Review action - blocking
