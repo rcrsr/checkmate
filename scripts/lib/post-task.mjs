@@ -1,6 +1,6 @@
 /**
  * post-task.mjs
- * PostToolUse hook: Handle Task completions with configurable actions
+ * PostToolUse hook: Handle Agent completions with configurable actions
  *
  * Reads checkmate.json from .claude/ directory to determine what action
  * to take based on the completed subagent type.
@@ -15,10 +15,8 @@
  * TODO(hooks-review):
  * 1. BUG: line ~142 — applySubstitutions() result is discarded; the substituted
  *    message is never passed to pass(). Only the rule name is shown to the model.
- * 2. The "Task" matcher in hooks.json and the toolName === "Task" check here
- *    depend on the internal tool name staying "Task". Claude Code's user-facing
- *    tool is now "Agent" with a subagent_type param. If the internal name changes,
- *    this hook stops firing silently. Monitor Claude Code changelog for tool renames.
+ * 2. RESOLVED: matcher and guard updated from "Task" to "Agent" in v2.2.2.
+ *    Monitor Claude Code changelog for future tool renames.
  * 3. Every pass() emits a systemMessage, adding tokens to model context even on
  *    no-op paths ("no config", "subagent context"). Consider silent exit (no output)
  *    for cases where checkmate has nothing meaningful to report.
@@ -111,11 +109,12 @@ function applySubstitutions(template, capture) {
 
 export async function run() {
   const input = await readStdinJson();
+
   const toolName = input.tool_name;
   const subagentType = input.tool_input?.subagent_type;
 
   // Only process Task tool completions
-  if (toolName !== "Task") {
+  if (toolName !== "Agent") {
     process.exit(0);
   }
 
