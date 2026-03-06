@@ -11,15 +11,6 @@
  *   - review: blocking, requires review
  *
  * Exit codes: 0 = continue (with optional block decision)
- *
- * TODO(hooks-review):
- * 1. RESOLVED: applySubstitutions() result now passed to pass() in v2.2.2.
- * 2. RESOLVED: matcher and guard updated from "Task" to "Agent" in v2.2.2.
- *    Monitor Claude Code changelog for future tool renames.
- * 3. Every pass() emits a systemMessage, adding tokens to model context even on
- *    no-op paths ("no config", "subagent context"). Consider silent exit (no output)
- *    for cases where checkmate has nothing meaningful to report.
- *    See: conduct CLAUDE-CODE-CHANGELOG-REVIEW.md — additionalContext vs systemMessage.
  */
 
 import { loadConfig, readStdinJson, pass, block } from "./lib.mjs";
@@ -112,7 +103,7 @@ export async function run() {
   const toolName = input.tool_name;
   const subagentType = input.tool_input?.subagent_type;
 
-  // Only process Task tool completions
+  // Only process Agent tool completions
   if (toolName !== "Agent") {
     process.exit(0);
   }
