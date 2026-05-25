@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Quality Hook:** On a failed check, surface a `<checkmate-ran>` block echoing the exact command checkmate ran (with configured flags resolved). This lets a manual fix reuse the configured invocation instead of drifting to a tool's defaults — e.g. preventing a bare `shfmt -w` (tabs) when the check ran `shfmt -i 2 -d`.
+
 ## [2.2.5] - 2026-06-10
 
 ### Fixed

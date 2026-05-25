@@ -246,6 +246,19 @@ function truncateOutput(output, lines) {
   return output.split("\n").slice(0, lines).join("\n");
 }
 
+/**
+ * Build a display string of the command checkmate ran, with $FILE resolved to
+ * a project-relative path. Surfaced on failure so a manual fix reuses the
+ * configured flags (e.g. shfmt's `-i 2`) instead of the tool's defaults.
+ */
+export function resolveCommand(command, args, filePath, projectRoot) {
+  const rel = path.relative(projectRoot, filePath) || path.basename(filePath);
+  const resolvedArgs = args.map((arg) =>
+    arg === "$FILE" ? rel : arg.replace("$FILE", rel)
+  );
+  return [command, ...resolvedArgs].join(" ");
+}
+
 // =============================================================================
 // Output Parsers
 // =============================================================================
@@ -486,7 +499,7 @@ function runCheck(check, filePath, projectRoot) {
       source: check.name,
       severity: "warning",
     });
-    return diagnostics;
+    return { diagnostics, command: null };
   }
 
   const args = check.args.map((arg) =>
@@ -502,7 +515,7 @@ function runCheck(check, filePath, projectRoot) {
         source: check.name,
         severity: "warning",
       });
-      return diagnostics;
+      return { diagnostics, command: null };
     }
 
     const combined = result.stdout + result.stderr;
@@ -525,9 +538,14 @@ function runCheck(check, filePath, projectRoot) {
         severity: "error",
       });
     }
+
+    return {
+      diagnostics,
+      command: resolveCommand(check.command, check.args, filePath, projectRoot),
+    };
   }
 
-  return diagnostics;
+  return { diagnostics, command: null };
 }
 
 // =============================================================================
@@ -548,6 +566,17 @@ function formatDiagnostic(d) {
 function formatDiagnosticsBlock(diags, fileName) {
   const lines = diags.map((d) => formatDiagnostic(d));
   return `<new-diagnostics>\n${fileName}:\n${lines.join("\n")}\n</new-diagnostics>`;
+}
+
+/**
+ * Render the exact commands checkmate ran for the failing checks. Reusing
+ * these flags when fixing avoids drifting to a tool's defaults (e.g. a bare
+ * `shfmt -w` reformats to tabs instead of the configured `-i 2`).
+ */
+export function formatCommandsBlock(commands) {
+  const unique = [...new Set(commands)];
+  const lines = unique.map((c) => `  ${c}`).join("\n");
+  return `<checkmate-ran>\n${lines}\n</checkmate-ran>`;
 }
 
 // =============================================================================
@@ -629,16 +658,18 @@ export async function run() {
   // Results track declaration order: { name, passed }
   let checkResult = { checks: [], reason: "no-config" };
   const results = [];
+  const commands = [];
   let hasFailures = false;
 
   if (config) {
     checkResult = getChecksForFile(config, filePath, projectRoot);
     for (const check of checkResult.checks) {
-      const checkDiagnostics = runCheck(check, filePath, projectRoot);
+      const { diagnostics: checkDiagnostics, command } = runCheck(check, filePath, projectRoot);
       if (checkDiagnostics.length > 0) {
         results.push({ name: check.name, passed: false });
         hasFailures = true;
         diagnostics.push(...checkDiagnostics);
+        if (command) commands.push(command);
       } else {
         results.push({ name: check.name, passed: true });
       }
@@ -671,7 +702,10 @@ export async function run() {
 
   // Any diagnostics found - block
   if (hasFailures) {
-    const reason = formatDiagnosticsBlock(diagnostics, fileName);
+    let reason = formatDiagnosticsBlock(diagnostics, fileName);
+    if (commands.length > 0) {
+      reason += "\n" + formatCommandsBlock(commands);
+    }
     block(reason, statusLine);
   }
 
