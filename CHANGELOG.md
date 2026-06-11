@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.5] - 2026-06-10
+
+### Fixed
+
+- **Quality Checks:** Remove "not found" substring guard that silently discarded failing check output containing that phrase (e.g. formatter diffs quoting source lines). Missing-command spawn failures now detected via `ENOENT` error code with a warning diagnostic.
+
 ## [2.2.4] - 2026-03-05
 
 ### Changed

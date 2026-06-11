@@ -238,6 +238,7 @@ function runCommand(cmd, args, cwd) {
     success: result.status === 0,
     stderr: result.stderr || "",
     stdout: result.stdout || "",
+    error: result.error || null,
   };
 }
 
@@ -495,11 +496,16 @@ function runCheck(check, filePath, projectRoot) {
   const result = runCommand(check.command, args, projectRoot);
 
   if (!result.success) {
-    const combined = result.stdout + result.stderr;
-
-    if (combined.includes("not found") || combined.includes("command not found")) {
+    if (result.error?.code === "ENOENT") {
+      diagnostics.push({
+        message: `${check.command} not found - skipping ${check.name}`,
+        source: check.name,
+        severity: "warning",
+      });
       return diagnostics;
     }
+
+    const combined = result.stdout + result.stderr;
 
     const parser = getParser(check.parser);
     const parsed = parser(combined);
