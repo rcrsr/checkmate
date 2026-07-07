@@ -77,6 +77,28 @@ function findMatchingTask(tasks, subagentType) {
 }
 
 /**
+ * Detect an Agent tool call that launched a background agent.
+ *
+ * For background agents the Agent tool returns at launch, not completion, so
+ * PostToolUse fires before the subagent has done any work. Two documented
+ * signals identify this case: run_in_background in the tool input, and an
+ * "async_launched" status in the tool response (load-bearing when background
+ * is the harness default and the input flag is absent). The response arrives
+ * as tool_response, or tool_output under the Agent SDK.
+ *
+ * @param {object} input - PostToolUse hook input
+ * @returns {boolean} True when the agent was launched in the background
+ */
+function isBackgroundLaunch(input) {
+  if (input.tool_input?.run_in_background === true) {
+    return true;
+  }
+
+  const response = input.tool_response ?? input.tool_output;
+  return typeof response === "object" && response?.status === "async_launched";
+}
+
+/**
  * Apply substitutions to a string.
  * Supports $1 and * placeholders for captured prefix.
  *
@@ -110,6 +132,13 @@ export async function run() {
 
   // No subagent type provided - skip silently
   if (!subagentType) {
+    process.exit(0);
+  }
+
+  // Background launch - the subagent hasn't run yet, so there is nothing to
+  // review. Skip silently; a completion action here would fire before any
+  // edits exist.
+  if (isBackgroundLaunch(input)) {
     process.exit(0);
   }
 

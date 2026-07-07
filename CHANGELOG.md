@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Task Hook:** Skip background agent launches. `PostToolUse:Agent` fires when the Agent tool returns, which for `run_in_background` agents is at launch — before the subagent has done any work. Review rules were emitting blocking errors immediately (once per launched agent in a fan-out). Background launches are detected via `tool_input.run_in_background` or an `async_launched` status in the tool response, and skipped silently. Note: task rules now apply only to foreground agent completions; Claude Code fires no parent-thread hook when a background agent finishes, so background completions cannot trigger reviews.
+
 ## [2.2.5] - 2026-06-10
 
 ### Fixed

@@ -304,6 +304,17 @@ Given `subagent_type: "python-engineer"`:
 | `message` | Non-blocking | `[checkmate] ℹ️ <name>` |
 | `review` | Blocking | `[checkmate] 🔍 <name>` |
 
+### Background Agents
+
+Task rules apply only to **foreground** agent completions. When an agent is
+launched with `run_in_background`, the Agent tool returns immediately — the
+`PostToolUse` hook fires at launch, before the subagent has done any work, so
+checkmate skips it silently. Claude Code fires no parent-thread hook when a
+background agent later completes (`SubagentStop` runs in the subagent's
+context and carries no `subagent_type`), so background completions cannot
+trigger task rules. If you rely on `review` rules, run those agents in the
+foreground.
+
 ## Git Operations
 
 Checkmate skips checks during git operations where unintended Claude Code modifications could corrupt state:
