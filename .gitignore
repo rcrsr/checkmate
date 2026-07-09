@@ -5,3 +5,4 @@ node_modules/
 .vscode/
 conduct/
 .codanna
+.fastembed_cache
