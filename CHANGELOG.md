@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Parsers:** Dedicated `oxlint` parser for `--format=unix` output (`path:line:col: message [Severity/rule]`), emitting structured line/column/rule diagnostics instead of a raw text dump. oxlint checks require `--format=unix --deny-warnings` since warnings exit 0 otherwise and are never reported. `oxfmt --check` maps to the existing `prettier` parser.
 - **Skills:** oxlint and oxfmt in init/refresh tool discovery, config examples, and refresh's wrong-invocation-pattern checks.
 - **Hooks:** Runtime pre-flight in the PostToolUse quality hook. Path-like commands/args are existence-checked before spawning. Missing `node_modules` paths skip the check with a "run `<manager> install`" hint, with manager inferred from the root lockfile. `MODULE_NOT_FOUND` spawn output also maps to a skip.
+- **Quality Hook:** On a failed check, surface a `<reproduce-with>` block echoing the exact command checkmate ran, with `$FILE` resolved to a project-relative path and shell-unsafe arguments quoted. A manual fix reuses the configured invocation (e.g. `shfmt -i 2 -d`) instead of drifting to a tool's defaults.
 
 ### Changed
 

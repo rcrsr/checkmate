@@ -246,6 +246,37 @@ function truncateOutput(output, lines) {
   return output.split("\n").slice(0, lines).join("\n");
 }
 
+/**
+ * Shell-quote a single token, shlex.quote-style: wrap in single quotes if it
+ * contains shell-unsafe characters (or is empty), escaping embedded quotes.
+ */
+function shellQuote(token) {
+  if (token !== "" && !/[^A-Za-z0-9_@%+=:,./-]/.test(token)) {
+    return token;
+  }
+  return `'${token.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Build a display string of the command checkmate ran, with $FILE resolved to
+ * a project-relative path. Surfaced on failure so a manual fix reuses the
+ * configured flags (e.g. shfmt's `-i 2`) instead of the tool's defaults.
+ * Tokens containing shell-unsafe characters are single-quoted so the string
+ * is copy-paste safe.
+ * @param {string} command - The check's command name
+ * @param {string[]} args - The check's raw args, with $FILE placeholder
+ * @param {string} filePath - Absolute path to the file being checked
+ * @param {string} projectRoot - Absolute path to the project root
+ * @returns {string}
+ */
+export function resolveCommand(command, args, filePath, projectRoot) {
+  const rel = path.relative(projectRoot, filePath);
+  const resolvedArgs = args.map((arg) =>
+    arg === "$FILE" ? rel : arg.replace("$FILE", rel)
+  );
+  return [command, ...resolvedArgs].map(shellQuote).join(" ");
+}
+
 // =============================================================================
 // Output Parsers
 // =============================================================================
@@ -557,7 +588,7 @@ function skipDiagnostic(missingRef, checkName, projectRoot) {
   if (missingRef.includes("node_modules")) {
     message += ` (run ${getInstallHint(projectRoot)})`;
   }
-  return { diagnostics: [{ message, source: checkName, severity: "warning" }], skipped: true };
+  return { diagnostics: [{ message, source: checkName, severity: "warning" }], skipped: true, command: null };
 }
 
 function runCheck(check, filePath, projectRoot) {
@@ -590,7 +621,11 @@ function runCheck(check, filePath, projectRoot) {
       if (combined.includes("node_modules")) {
         message += ` (run ${getInstallHint(projectRoot)})`;
       }
-      return { diagnostics: [{ message, source: check.name, severity: "warning" }], skipped: true };
+      return {
+        diagnostics: [{ message, source: check.name, severity: "warning" }],
+        skipped: true,
+        command: null,
+      };
     }
 
     const parser = getParser(check.parser);
@@ -611,9 +646,15 @@ function runCheck(check, filePath, projectRoot) {
         severity: "error",
       });
     }
+
+    return {
+      diagnostics,
+      skipped: false,
+      command: resolveCommand(check.command, check.args, filePath, projectRoot),
+    };
   }
 
-  return { diagnostics, skipped: false };
+  return { diagnostics, skipped: false, command: null };
 }
 
 // =============================================================================
@@ -634,6 +675,17 @@ function formatDiagnostic(d) {
 function formatDiagnosticsBlock(diags, fileName) {
   const lines = diags.map((d) => formatDiagnostic(d));
   return `<new-diagnostics>\n${fileName}:\n${lines.join("\n")}\n</new-diagnostics>`;
+}
+
+/**
+ * Format the set of commands checkmate ran into a reproduce-with block,
+ * de-duplicated so repeated failures on the same check don't repeat lines.
+ * @param {string[]} commands - Resolved command strings from failed checks
+ * @returns {string}
+ */
+export function formatCommandsBlock(commands) {
+  const lines = [...new Set(commands)].map((c) => `  ${c}`);
+  return `<reproduce-with>\n${lines.join("\n")}\n</reproduce-with>`;
 }
 
 // =============================================================================
@@ -715,12 +767,13 @@ export async function run() {
   // Results track declaration order: { name, passed }
   let checkResult = { checks: [], reason: "no-config" };
   const results = [];
+  const commands = [];
   let hasFailures = false;
 
   if (config) {
     checkResult = getChecksForFile(config, filePath, projectRoot);
     for (const check of checkResult.checks) {
-      const { diagnostics: checkDiagnostics, skipped } = runCheck(check, filePath, projectRoot);
+      const { diagnostics: checkDiagnostics, skipped, command } = runCheck(check, filePath, projectRoot);
       if (skipped) {
         results.push({ name: check.name, passed: true, skipped: true, skipMessage: checkDiagnostics[0]?.message });
         continue;
@@ -729,6 +782,7 @@ export async function run() {
         results.push({ name: check.name, passed: false });
         hasFailures = true;
         diagnostics.push(...checkDiagnostics);
+        if (command) commands.push(command);
       } else {
         results.push({ name: check.name, passed: true });
       }
@@ -764,7 +818,10 @@ export async function run() {
 
   // Any diagnostics found - block
   if (hasFailures) {
-    const reason = formatDiagnosticsBlock(diagnostics, fileName);
+    let reason = formatDiagnosticsBlock(diagnostics, fileName);
+    if (commands.length > 0) {
+      reason += "\n" + formatCommandsBlock(commands);
+    }
     block(reason, statusLine);
   }
 
