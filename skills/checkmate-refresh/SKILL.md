@@ -54,7 +54,7 @@ For each check in the config, verify the command exists using the detected exec 
 Report:
 - Tools that are configured but missing
 - Tools with version changes (if version flags available)
-- Tools using wrong invocation pattern (e.g., `npx` when `pnpm exec` should be used)
+- Tools using wrong invocation pattern (e.g., `pnpm exec` in an npm project, or `npx` anywhere — replace with `node node_modules/.bin/<tool>`, which skips npx's ~150ms per-run resolution overhead)
 
 ### Step 4: Discover New Tools
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.6] - 2026-07-09
+
+### Changed
+
+- **Skills/Agents:** npm environments now invoke tools via `node node_modules/.bin/<tool>` instead of `npx <tool>` in generated configs, discovery probes, and the `detect-environment` exec pattern. Benchmarked ~3x faster (eslint 215ms → 72ms, prettier 209ms → 65ms per run) since npx re-resolves the package every invocation; also prevents npx from fetching packages from the registry inside a synchronous hook.
+
 ## [2.2.5] - 2026-06-10
 
 ### Fixed

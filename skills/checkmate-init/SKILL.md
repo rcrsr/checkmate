@@ -90,8 +90,11 @@ The agent returns an array of environments:
 
 Use the `exec` array to build tool invocation commands:
 - `exec: ["pnpm", "exec"]` → `{ "command": "pnpm", "args": ["exec", "prettier", "--check", "$FILE"] }`
+- `exec: ["node", "node_modules/.bin/<tool>"]` (npm) → `{ "command": "node", "args": ["node_modules/.bin/prettier", "--check", "$FILE"] }` — the tool name is substituted into the `.bin/` path, not appended as a separate argument
 - `exec: ["uv", "run"]` → `{ "command": "uv", "args": ["run", "ruff", "check", "$FILE"] }`
 - `exec: []` (empty) → `{ "command": "golangci-lint", "args": ["run", "$FILE"] }`
+
+**Avoid `npx` in check commands.** It re-resolves the package on every invocation (~150ms overhead: benchmarked 215ms vs 72ms per eslint run, 209ms vs 65ms for prettier) and can fetch packages from the registry when missing locally — a synchronous hook must never do either. `node node_modules/.bin/<tool>` invokes the same local install directly.
 
 **For monorepos:** Each environment path needs its own check configuration with the correct invocation pattern.
 
@@ -323,8 +326,8 @@ TypeScript/JavaScript (adapt runner to detected package manager):
 // pnpm (pnpm-lock.yaml present)
 { "name": "eslint", "command": "pnpm", "args": ["exec", "eslint", "$FILE"], "parser": "eslint", "_auto": true }
 
-// npm (package-lock.json present)
-{ "name": "eslint", "command": "npx", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true }
+// npm (package-lock.json present) - invoke the local bin directly; npx adds ~150ms per run
+{ "name": "eslint", "command": "node", "args": ["node_modules/.bin/eslint", "$FILE"], "parser": "eslint", "_auto": true }
 
 // yarn (yarn.lock present)
 { "name": "eslint", "command": "yarn", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true }
@@ -398,12 +401,12 @@ Shell scripts:
       "exclude": ["dist/**", "build/**", "coverage/**"],
       "checks": {
         ".ts,.tsx": [
-          { "name": "prettier", "command": "npx", "args": ["prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true },
-          { "name": "eslint", "command": "npx", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true },
-          { "name": "tsc-files", "command": "npx", "args": ["tsc-files", "--noEmit", "$FILE"], "parser": "tsc", "_auto": true }
+          { "name": "prettier", "command": "node", "args": ["node_modules/.bin/prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true },
+          { "name": "eslint", "command": "node", "args": ["node_modules/.bin/eslint", "$FILE"], "parser": "eslint", "_auto": true },
+          { "name": "tsc-files", "command": "node", "args": ["node_modules/.bin/tsc-files", "--noEmit", "$FILE"], "parser": "tsc", "_auto": true }
         ],
         ".json,.md": [
-          { "name": "prettier", "command": "npx", "args": ["prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true }
+          { "name": "prettier", "command": "node", "args": ["node_modules/.bin/prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true }
         ]
       }
     }

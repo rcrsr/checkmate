@@ -58,8 +58,10 @@ For each environment directory, determine the package manager using priority rul
 |----------|---------|--------------|
 | `pnpm-lock.yaml` | pnpm | `["pnpm", "exec"]` |
 | `yarn.lock` | yarn | `["yarn"]` |
-| `package-lock.json` | npm | `["npx"]` |
+| `package-lock.json` | npm | `["node", "node_modules/.bin/<tool>"]` |
 | `bun.lockb` | bun | `["bun"]` |
+
+**npm note:** Do not use `npx` — it re-resolves the package on every run (~150ms overhead per invocation; benchmarked 215ms vs 72ms for eslint) and can fetch packages from the registry when missing locally, which a synchronous hook must never do. Instead invoke the local bin directly with node. `<tool>` is substituted into the `.bin/` path (path concatenation, not a separate argument): `node node_modules/.bin/eslint`. For nested environments, prefix the environment path: `node apps/web/node_modules/.bin/eslint`.
 
 **Python** (priority: uv > poetry > pipenv > conda):
 
@@ -97,7 +99,7 @@ Output all environments as a JSON array:
   "environments": [
     {
       "path": ".",
-      "javascript": { "primary": "npm", "exec": ["npx"] },
+      "javascript": { "primary": "npm", "exec": ["node", "node_modules/.bin/<tool>"] },
       "python": null,
       "rust": null,
       "go": null,
