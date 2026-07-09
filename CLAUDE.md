@@ -17,7 +17,7 @@ This project is a Claude Code plugin. It uses PreToolUse and PostToolUse hooks t
 
 **Quality checks:** Edit/Write (PostToolUse) → load config → detect git state (skip if rebase/bisect/am) → run checks → block on errors.
 
-**Task review:** Task completion → match `subagent_type` against rules → skip/message/review action.
+**Task review:** Agent completion → skip if background launch (tool returns at launch, nothing to review) → match `subagent_type` against rules → skip/message/review action. Background completions cannot trigger reviews (no parent-thread hook carries `subagent_type`).
 
 ## Adding Parsers
 

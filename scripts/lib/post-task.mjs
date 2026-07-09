@@ -94,6 +94,39 @@ function applySubstitutions(template, capture) {
 }
 
 // =============================================================================
+// Background Launch Detection
+// =============================================================================
+
+const LAUNCH_STATUSES = ["async_launched", "remote_launched", "teammate_spawned"];
+
+/**
+ * Detect whether the Agent tool call is a background launch rather than a
+ * completed run. For background agents the Agent tool returns at launch, not
+ * completion, so PostToolUse fires before any work exists. The
+ * run_in_background flag may be absent since background is the harness
+ * default, which makes the response status load-bearing. tool_output is
+ * included as an Agent SDK field-name alias for tool_response. The
+ * tool_response field name, its presence behavior, and the three status
+ * values checked below were all verified against the Claude Code 2.1.205
+ * binary and are absent from the public hooks reference, so re-verify on
+ * Claude Code updates.
+ *
+ * @param {object} input - Parsed PostToolUse payload
+ * @returns {boolean} True if this call is a launch-only return
+ */
+function isBackgroundLaunch(input) {
+  if (input.tool_input?.run_in_background === true) {
+    return true;
+  }
+
+  const response = input.tool_response ?? input.tool_output;
+  return (
+    typeof response === "object" &&
+    LAUNCH_STATUSES.includes(response?.status)
+  );
+}
+
+// =============================================================================
 // Main
 // =============================================================================
 
@@ -110,6 +143,13 @@ export async function run() {
 
   // No subagent type provided - skip silently
   if (!subagentType) {
+    process.exit(0);
+  }
+
+  // Background launch - the subagent hasn't run yet, so there is nothing to
+  // review. Skip silently; a completion action here would fire before any
+  // edits exist.
+  if (isBackgroundLaunch(input)) {
     process.exit(0);
   }
 

@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Hooks:** "not found - skipping" warnings previously set the failure flag and blocked every edit. Skipped checks are now non-blocking, render as ⊘ in the status line, and surface their reason in the pass message.
 - **Parsers:** `ruff check` invocations now pass `--output-format=concise`. Ruff 0.15 changed the default output to a multi-line format the `ruff` parser cannot match, silently degrading diagnostics to the generic raw dump.
+- **Task Hook:** Skip background agent launches. `PostToolUse:Agent` fires when the Agent tool returns, which for background agents is at launch, before the subagent has done any work; review rules were emitting blocking errors immediately, once per launched agent in a fan-out. Launches are detected via `tool_input.run_in_background` or a launch status (`async_launched`, `remote_launched`, `teammate_spawned`) in the tool response, verified against the Claude Code 2.1.205 binary. Task rules now apply only to foreground completions; background completions cannot trigger reviews (documented limitation in README). Integrates PR #3 by @tedserbinski with amendments.
 
 ## [2.2.5] - 2026-06-10
 
