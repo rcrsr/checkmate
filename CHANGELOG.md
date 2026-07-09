@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-07-09
+
+### Added
+
+- **Quality Checks:** Native `oxlint` predefined parser for oxlint's `-f agent` output format, including rule-less syntax errors (verified against oxlint 1.73.0)
+- **Quality Checks:** oxfmt support documented via the existing `prettier` pass/fail parser (`oxfmt --check`, verified against oxfmt 0.58.0)
+- **Skills:** `checkmate-init` and `checkmate-refresh` now discover oxlint/oxfmt and recommend direct `node node_modules/<tool>/bin/<tool>` invocation over `npx` (~5x faster: 33ms vs 187ms per oxlint run)
+- **Tests:** Parser unit tests (`tests/parsers.test.mjs`); `parsers` object is now exported from `post-tool.mjs`
+
 ## [2.2.5] - 2026-06-10
 
 ### Fixed

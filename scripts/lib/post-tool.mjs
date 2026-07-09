@@ -250,7 +250,7 @@ function truncateOutput(output, lines) {
 // Output Parsers
 // =============================================================================
 
-const parsers = {
+export const parsers = {
   ruff(output) {
     const results = [];
     const lines = output.split("\n").filter((l) => l.trim());
@@ -315,6 +315,29 @@ const parsers = {
           column: parseInt(match[2], 10),
           message: match[4],
           rule: match[5],
+          severity: match[3],
+        });
+      }
+    }
+    return results;
+  },
+
+  oxlint(output) {
+    const results = [];
+    const lines = output.split("\n").filter((l) => l.trim());
+
+    for (const line of lines) {
+      // agent format: path:line:col: severity plugin(rule): message
+      // syntax errors omit the rule code: path:line:col: error: message
+      const match = line.match(
+        /:(\d+):(\d+):\s+(error|warning)(?:\s+([\w-]+\([^)]+\)))?:\s+(.+)$/
+      );
+      if (match) {
+        results.push({
+          line: parseInt(match[1], 10),
+          column: parseInt(match[2], 10),
+          message: match[5],
+          rule: match[4],
           severity: match[3],
         });
       }

@@ -64,6 +64,8 @@ Using the detected invocation pattern, check for tools that aren't in the config
 ```bash
 <exec> prettier --version 2>/dev/null && echo "prettier available"
 <exec> eslint --version 2>/dev/null && echo "eslint available"
+<exec> oxlint --version 2>/dev/null && echo "oxlint available"
+<exec> oxfmt --version 2>/dev/null && echo "oxfmt available"
 <exec> biome --version 2>/dev/null && echo "biome available"
 <exec> tsc-files --version 2>/dev/null && echo "tsc-files available"
 ```

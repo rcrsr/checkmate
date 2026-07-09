@@ -69,6 +69,7 @@ Check if output matches a predefined parser:
 | `ruff` | `path:line:col: CODE message` | `main.py:10:5: E501 Line too long` |
 | `ty` | `error[rule]: msg` + `--> path:line:col` | Multi-line Rust-style |
 | `eslint` | `path:line:col severity message rule` | `app.ts:5:1 error msg no-console` |
+| `oxlint` | `path:line:col: severity plugin(rule): message` (`-f agent`) | `app.ts:5:1: error eslint(no-debugger): msg` |
 | `tsc` | `path(line,col): error TScode: message` | `app.ts(5,1): error TS2304: msg` |
 | `biome` | `path:line:col rule message` | `app.ts:5:1 lint/style msg` |
 | `prettier` | Pass/fail only (no structured diagnostics) | Any non-empty output = fail |

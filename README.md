@@ -180,8 +180,9 @@ Required fields: `file`, `line`, `message`. Optional: `column`.
 | `ruff` | ruff check, ruff format |
 | `ty` | ty type checker |
 | `eslint` | eslint |
+| `oxlint` | oxlint with `-f agent` |
 | `tsc` | TypeScript compiler |
-| `prettier` | prettier, biome format |
+| `prettier` | prettier, biome format, oxfmt --check |
 | `biome` | biome lint |
 | `jsonl` | Custom tools with JSON Lines output |
 | `gcc` | clang-format, clang-tidy, shellcheck --format=gcc |
@@ -196,6 +197,7 @@ Required fields: `file`, `line`, `message`. Optional: `column`.
 | `tsc` | `tsc-files` or `eslint` with `@typescript-eslint` |
 | `mypy` | `mypy --follow-imports=skip` |
 | `cargo check` | `clippy` on single file |
+| `npx <tool>` | `node node_modules/<tool>/bin/<tool>` (skips npx resolution, ~5x faster for oxlint) |
 
 **Disable auto-fix.** Use `--check` or `--dry-run` flags. Auto-fix desynchronizes Claude Code's file state.
 
@@ -203,6 +205,7 @@ Required fields: `file`, `line`, `message`. Optional: `column`.
 |------|-----------------|
 | `ruff format` | `--check` |
 | `prettier` | `--check` |
+| `oxfmt` | `--check` (required: bare `oxfmt` rewrites files in place) |
 | `rustfmt` | `--check` |
 | `clang-format` | `--dry-run -Werror` |
 

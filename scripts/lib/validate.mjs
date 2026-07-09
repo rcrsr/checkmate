@@ -18,7 +18,7 @@ import * as fs from "node:fs";
 // Schema Definitions
 // =============================================================================
 
-const PREDEFINED_PARSERS = ["ruff", "ty", "eslint", "tsc", "prettier", "biome", "generic", "jsonl", "gcc"];
+const PREDEFINED_PARSERS = ["ruff", "ty", "eslint", "oxlint", "tsc", "prettier", "biome", "generic", "jsonl", "gcc"];
 
 // =============================================================================
 // Validation Functions

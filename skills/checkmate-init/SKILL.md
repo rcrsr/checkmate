@@ -103,11 +103,15 @@ Using the detected invocation pattern, check which tools are available:
 ```bash
 <exec> prettier --version 2>/dev/null && echo "prettier available"
 <exec> eslint --version 2>/dev/null && echo "eslint available"
+<exec> oxlint --version 2>/dev/null && echo "oxlint available"
+<exec> oxfmt --version 2>/dev/null && echo "oxfmt available"
 <exec> biome --version 2>/dev/null && echo "biome available"
 <exec> tsc-files --version 2>/dev/null && echo "tsc-files available"
 ```
 
 **Note:** Avoid `tsc` - it checks the entire project on every file change. Use `tsc-files` (per-file) or `eslint` with `@typescript-eslint` instead.
+
+**Note:** When oxlint/oxfmt are installed locally, invoke them as `node node_modules/oxlint/bin/oxlint` instead of `npx oxlint` — this skips npx resolution (~150ms per edit, ~5x faster total). For nested environments, prefix the path: `node services/web/node_modules/oxlint/bin/oxlint`.
 
 **Python tools** (using detected exec pattern):
 ```bash
@@ -157,8 +161,8 @@ command -v shfmt && shfmt --version
 **If no tools found:** Suggest installation based on detected environment:
 - Python + uv: `uv add --dev ruff`
 - Python + pip: `pip install ruff`
-- TypeScript + pnpm: `pnpm add -D prettier eslint typescript`
-- TypeScript + npm: `npm install -D prettier eslint typescript`
+- TypeScript + pnpm: `pnpm add -D prettier eslint typescript` (or `pnpm add -D oxlint oxfmt` for the fast Rust toolchain)
+- TypeScript + npm: `npm install -D prettier eslint typescript` (or `npm install -D oxlint oxfmt`)
 - TypeScript (tsc present, tsc-files missing): `pnpm add -D tsc-files` or `npm install -D tsc-files`
 - Go: `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`
 - C/C++ (macOS): `brew install llvm` (note: use full path `/opt/homebrew/opt/llvm/bin/clang-format`)
@@ -274,9 +278,10 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
 | `ruff` | Ruff linter | `path:line:col: CODE message` |
 | `ty` | ty type checker | Multi-line Rust-style errors |
 | `eslint` | ESLint (with `@typescript-eslint` for type checks) | `path:line:col severity message rule` |
+| `oxlint` | oxlint with `-f agent` | `path:line:col: severity plugin(rule): message` |
 | `tsc` | tsc, tsc-files (TypeScript) | `path(line,col): error TScode: message` |
 | `biome` | Biome | `path:line:col rule message` |
-| `prettier` | Any format checker | Pass/fail only (non-empty = fail) |
+| `prettier` | Any format checker (prettier, oxfmt --check, shfmt) | Pass/fail only (non-empty = fail) |
 | `jsonl` | JSON Lines output | `{"file":"x.ts","line":10,"message":"err"}` |
 | `gcc` | GCC-style output | `path:line:col: severity: message` (clang-format, clang-tidy, shellcheck --format=gcc) |
 | `generic` | Fallback | Returns raw output truncated |
@@ -331,6 +336,16 @@ TypeScript/JavaScript (adapt runner to detected package manager):
 
 // bun (bun.lockb present)
 { "name": "eslint", "command": "bun", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true }
+```
+
+oxlint/oxfmt (any package manager — direct node invocation is ~5x faster than npx):
+```json
+// oxlint: --deny-warnings makes warnings exit non-zero (otherwise checkmate never sees them),
+// -f agent emits one parseable diagnostic per line
+{ "name": "oxlint", "command": "node", "args": ["node_modules/oxlint/bin/oxlint", "--deny-warnings", "-f", "agent", "$FILE"], "parser": "oxlint", "_auto": true }
+
+// oxfmt: --check is REQUIRED — bare oxfmt rewrites the file in place
+{ "name": "oxfmt", "command": "node", "args": ["node_modules/oxfmt/bin/oxfmt", "--check", "$FILE"], "parser": "prettier", "_auto": true }
 ```
 
 Rust (always use cargo):
@@ -468,7 +483,8 @@ Before presenting the configuration, use the `AskUserQuestion` tool to gather pr
 Apply the answers to the proposed configuration before presenting it.
 
 **Decision guidance:**
-- **biome vs prettier+eslint:** biome is faster but less configurable. Use prettier+eslint for existing configs.
+- **biome vs prettier+eslint vs oxlint+oxfmt:** biome is faster but less configurable. oxlint+oxfmt are the fastest (Rust, ~30ms per file invoked via `node node_modules/...`) and oxfmt is Prettier-compatible, but oxfmt is still 0.x. Use whichever the project already configures (`.oxlintrc.json`/`.oxfmtrc.json` → oxc, `biome.json` → biome, `.prettierrc`/`eslint.config.*` → prettier+eslint). Don't introduce a new toolchain during init.
+- **oxlint type-aware rules:** the `oxlint-tsgolint` type-aware backend is alpha — don't add it to auto-generated configs.
 - **maxDiagnostics:** 5 is good default. Increase to 10 for strict projects. Set to 1 for slow tools.
 - **Check order:** Format checks first, then lint, then type check (fastest to slowest).
 - **Related file types:** Formatters like prettier handle more than code. Recommend adding checks for:
