@@ -92,20 +92,31 @@ Use the `exec` array to build tool invocation commands:
 - `exec: ["pnpm", "exec"]` → `{ "command": "pnpm", "args": ["exec", "prettier", "--check", "$FILE"] }`
 - `exec: ["uv", "run"]` → `{ "command": "uv", "args": ["run", "ruff", "check", "$FILE"] }`
 - `exec: []` (empty) → `{ "command": "golangci-lint", "args": ["run", "$FILE"] }`
+- npm (`exec: ["node", "<resolved-bin-path>"]`) → do not append the tool name to `exec`. Instead, build the command from the environment's `bins` map: `{ "command": "node", "args": [bins["prettier"], "--check", "$FILE"] }`. For example, if `bins.prettier` is `"node_modules/prettier/bin/prettier.cjs"`, the check becomes `{ "command": "node", "args": ["node_modules/prettier/bin/prettier.cjs", "--check", "$FILE"] }`.
 
-**For monorepos:** Each environment path needs its own check configuration with the correct invocation pattern.
+**For monorepos:** Each environment path needs its own check configuration with the correct invocation pattern. For nested npm environments, the `bins` paths from the detect agent are relative to that environment's directory; prefix them with the environment path, e.g. `node apps/web/node_modules/eslint/bin/eslint.js` (see `agents/detect-environment.md`, "npm: resolve real bin paths").
 
 ### Step 3: Discover Available Tools
 
 Using the detected invocation pattern, check which tools are available:
 
-**JavaScript/TypeScript tools** (using detected exec pattern):
+**JavaScript/TypeScript tools:**
+
+For pnpm/yarn/bun environments, use the detected exec pattern directly:
 ```bash
 <exec> prettier --version 2>/dev/null && echo "prettier available"
 <exec> eslint --version 2>/dev/null && echo "eslint available"
 <exec> biome --version 2>/dev/null && echo "biome available"
 <exec> tsc-files --version 2>/dev/null && echo "tsc-files available"
 ```
+
+For npm environments, do not append the tool name to a generic exec prefix. Test the resolved bin path from the detect agent's `bins` map instead:
+```bash
+node node_modules/eslint/bin/eslint.js --version 2>/dev/null && echo "eslint available"
+node node_modules/prettier/bin/prettier.cjs --version 2>/dev/null && echo "prettier available"
+node <bins.tsc-files> --version 2>/dev/null && echo "tsc-files available"
+```
+If the `bins` map from the detect agent already lists a tool, treat it as available without re-probing; only probe for tools the agent did not resolve. If a tool is missing from `bins` (no `node_modules/<pkg>` directory), it is unavailable, do not guess a path.
 
 **Note:** Avoid `tsc` - it checks the entire project on every file change. Use `tsc-files` (per-file) or `eslint` with `@typescript-eslint` instead.
 
@@ -323,8 +334,8 @@ TypeScript/JavaScript (adapt runner to detected package manager):
 // pnpm (pnpm-lock.yaml present)
 { "name": "eslint", "command": "pnpm", "args": ["exec", "eslint", "$FILE"], "parser": "eslint", "_auto": true }
 
-// npm (package-lock.json present)
-{ "name": "eslint", "command": "npx", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true }
+// npm (package-lock.json present) — use the resolved bin path from the detect agent's `bins` map, never `npx`
+{ "name": "eslint", "command": "node", "args": ["node_modules/eslint/bin/eslint.js", "$FILE"], "parser": "eslint", "_auto": true }
 
 // yarn (yarn.lock present)
 { "name": "eslint", "command": "yarn", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true }
@@ -332,6 +343,16 @@ TypeScript/JavaScript (adapt runner to detected package manager):
 // bun (bun.lockb present)
 { "name": "eslint", "command": "bun", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true }
 ```
+
+**Never configure `npx` for any check.** `npx` re-resolves the package on every invocation (215ms vs 72ms per direct `node` call to eslint's bin script) and can fetch from the npm registry mid-hook if the tool is not installed locally. The quality-check hook runs synchronously on every file edit and must never touch the network. For npm environments, always invoke the resolved bin path from the detect agent's `bins` map with `node`, as shown above.
+
+**When a tool is missing:** do not configure a check for it. Instead recommend installation via the detected manager:
+- pnpm: `pnpm add -D <tool>`
+- yarn: `yarn add -D <tool>`
+- npm: `npm i -D <tool>`
+- bun: `bun add -d <tool>`
+
+If `node_modules` is absent entirely, recommend installing the full dependency tree first: `pnpm install` / `yarn install` / `npm install` / `bun install`.
 
 Rust (always use cargo):
 ```json
@@ -398,12 +419,12 @@ Shell scripts:
       "exclude": ["dist/**", "build/**", "coverage/**"],
       "checks": {
         ".ts,.tsx": [
-          { "name": "prettier", "command": "npx", "args": ["prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true },
-          { "name": "eslint", "command": "npx", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true },
-          { "name": "tsc-files", "command": "npx", "args": ["tsc-files", "--noEmit", "$FILE"], "parser": "tsc", "_auto": true }
+          { "name": "prettier", "command": "node", "args": ["node_modules/prettier/bin/prettier.cjs", "--check", "$FILE"], "parser": "prettier", "_auto": true },
+          { "name": "eslint", "command": "node", "args": ["node_modules/eslint/bin/eslint.js", "$FILE"], "parser": "eslint", "_auto": true },
+          { "name": "tsc-files", "command": "node", "args": ["<bins.tsc-files from detect agent>", "--noEmit", "$FILE"], "parser": "tsc", "_auto": true }
         ],
         ".json,.md": [
-          { "name": "prettier", "command": "npx", "args": ["prettier", "--check", "$FILE"], "parser": "prettier", "_auto": true }
+          { "name": "prettier", "command": "node", "args": ["node_modules/prettier/bin/prettier.cjs", "--check", "$FILE"], "parser": "prettier", "_auto": true }
         ]
       }
     }

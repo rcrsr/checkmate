@@ -51,10 +51,19 @@ For each check in the config, verify the command exists using the detected exec 
 <exec> <tool> --version 2>/dev/null && echo "<tool> OK" || echo "<tool> MISSING"
 ```
 
+For npm environments, do not append the tool name to a generic exec prefix. Probe the resolved bin path from the detect agent's `bins` map instead:
+
+```bash
+node <bins.tool> --version 2>/dev/null && echo "<tool> OK" || echo "<tool> MISSING"
+```
+
 Report:
 - Tools that are configured but missing
 - Tools with version changes (if version flags available)
-- Tools using wrong invocation pattern (e.g., `npx` when `pnpm exec` should be used)
+- Tools using wrong invocation pattern:
+  - Any `npx` usage: `npx` re-resolves the package on every run and can fetch from the npm registry mid-hook. Re-run `checkmate:detect-environment` and replace the check with the resolved bin path from its `bins` map (`{ "command": "node", "args": ["node_modules/<pkg>/<bin-path>", ...] }`).
+  - Manager mismatch (e.g. `pnpm exec` configured in a project that now uses npm): update to the currently detected manager's exec pattern.
+  - Stale bin paths: a configured `node_modules/<pkg>/<bin-path>` that no longer exists (package removed, or bin path moved after an upgrade). Re-resolve the path via `checkmate:detect-environment`, or if the package is gone, recommend reinstalling it via the detected manager (`pnpm add -D` / `yarn add -D` / `npm i -D` / `bun add -d`).
 
 ### Step 4: Discover New Tools
 

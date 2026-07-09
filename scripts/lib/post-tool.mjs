@@ -477,35 +477,102 @@ function getParser(parserConfig) {
 // Check Runner
 // =============================================================================
 
+const ROOT_LOCKFILE_MANAGERS = {
+  "pnpm-lock.yaml": "pnpm",
+  "yarn.lock": "yarn",
+  "bun.lockb": "bun",
+};
+
+/**
+ * Determine the install command hint from a root lockfile, defaulting to npm.
+ */
+function getInstallHint(projectRoot) {
+  try {
+    for (const [lockfile, manager] of Object.entries(ROOT_LOCKFILE_MANAGERS)) {
+      if (existsSync(path.join(projectRoot, lockfile))) {
+        return `${manager} install`;
+      }
+    }
+  } catch {
+    // fail open - fall through to default hint
+  }
+  return "npm install";
+}
+
+/**
+ * Find the first missing path among the command and its substituted args.
+ * Only path-like values (containing a path separator, not flags) are checked.
+ */
+function findMissingPath(command, args, projectRoot) {
+  const hasSeparator = (value) => value.includes("/") || value.includes(path.sep);
+  const candidates = [];
+
+  if (hasSeparator(command)) {
+    candidates.push(command);
+  }
+  for (const arg of args) {
+    if (typeof arg === "string" && hasSeparator(arg) && !arg.startsWith("-")) {
+      candidates.push(arg);
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      if (!existsSync(path.resolve(projectRoot, candidate))) {
+        return candidate;
+      }
+    } catch {
+      // fail open - skip this candidate
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Build a skip diagnostic, appending an install hint when the missing path
+ * lives under node_modules.
+ */
+function skipDiagnostic(missingRef, checkName, projectRoot) {
+  let message = `${missingRef} not found - skipping ${checkName}`;
+  if (missingRef.includes("node_modules")) {
+    message += ` (run ${getInstallHint(projectRoot)})`;
+  }
+  return { diagnostics: [{ message, source: checkName, severity: "warning" }], skipped: true };
+}
+
 function runCheck(check, filePath, projectRoot) {
   const diagnostics = [];
 
   if (!commandExists(check.command)) {
-    diagnostics.push({
-      message: `${check.command} not found - skipping ${check.name}`,
-      source: check.name,
-      severity: "warning",
-    });
-    return diagnostics;
+    return skipDiagnostic(check.command, check.name, projectRoot);
   }
 
   const args = check.args.map((arg) =>
     arg === "$FILE" ? filePath : arg.replace("$FILE", filePath)
   );
 
+  const missingPath = findMissingPath(check.command, args, projectRoot);
+  if (missingPath) {
+    return skipDiagnostic(missingPath, check.name, projectRoot);
+  }
+
   const result = runCommand(check.command, args, projectRoot);
 
   if (!result.success) {
     if (result.error?.code === "ENOENT") {
-      diagnostics.push({
-        message: `${check.command} not found - skipping ${check.name}`,
-        source: check.name,
-        severity: "warning",
-      });
-      return diagnostics;
+      return skipDiagnostic(check.command, check.name, projectRoot);
     }
 
     const combined = result.stdout + result.stderr;
+
+    if (/MODULE_NOT_FOUND|Cannot find module/.test(combined)) {
+      let message = `${check.name} skipped - module not found`;
+      if (combined.includes("node_modules")) {
+        message += ` (run ${getInstallHint(projectRoot)})`;
+      }
+      return { diagnostics: [{ message, source: check.name, severity: "warning" }], skipped: true };
+    }
 
     const parser = getParser(check.parser);
     const parsed = parser(combined);
@@ -527,7 +594,7 @@ function runCheck(check, filePath, projectRoot) {
     }
   }
 
-  return diagnostics;
+  return { diagnostics, skipped: false };
 }
 
 // =============================================================================
@@ -634,7 +701,11 @@ export async function run() {
   if (config) {
     checkResult = getChecksForFile(config, filePath, projectRoot);
     for (const check of checkResult.checks) {
-      const checkDiagnostics = runCheck(check, filePath, projectRoot);
+      const { diagnostics: checkDiagnostics, skipped } = runCheck(check, filePath, projectRoot);
+      if (skipped) {
+        results.push({ name: check.name, passed: true, skipped: true, skipMessage: checkDiagnostics[0]?.message });
+        continue;
+      }
       if (checkDiagnostics.length > 0) {
         results.push({ name: check.name, passed: false });
         hasFailures = true;
@@ -666,7 +737,10 @@ export async function run() {
 
   const fileName = path.basename(filePath);
   const statusLine = results
-    .map((r) => `${r.passed ? "\u2705" : "\u274C"} ${r.name}`)
+    .map((r) => {
+      if (r.skipped) return `\u2298 ${r.name}`;
+      return `${r.passed ? "\u2705" : "\u274C"} ${r.name}`;
+    })
     .join(" ");
 
   // Any diagnostics found - block
@@ -682,6 +756,10 @@ export async function run() {
     pass(checkResult.reason === "path-excluded" ? "excluded" : "skipped");
   }
 
-  // All clean - approve
-  pass(statusLine);
+  // All clean - approve, but surface why any check was skipped
+  const skipMessages = results.filter((r) => r.skipped).map((r) => r.skipMessage).filter(Boolean);
+  const finalStatus = skipMessages.length > 0
+    ? `${statusLine} | ${skipMessages.join("; ")}`
+    : statusLine;
+  pass(finalStatus);
 }

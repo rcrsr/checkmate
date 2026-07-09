@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **Hooks:** Runtime pre-flight in the PostToolUse quality hook. Path-like commands/args are existence-checked before spawning. Missing `node_modules` paths skip the check with a "run `<manager> install`" hint, with manager inferred from the root lockfile. `MODULE_NOT_FOUND` spawn output also maps to a skip.
+
+### Changed
+
+- **npm Environments:** Tools now invoke via the real bin script resolved from each package's `package.json` `bin` field (`node node_modules/<pkg>/<bin-path>`, e.g. `node_modules/eslint/bin/eslint.js`) instead of `npx`. Benchmarked ~3x faster per run (eslint 215ms to 72ms) and never hits the npm registry from a synchronous hook. Detection agent returns a per-tool `bins` map; init/refresh skills build configs from it. Missing tools get a manager-specific install recommendation (`pnpm add -D` / `yarn add -D` / `npm i -D` / `bun add -d`) instead of an `npx` fallback. Works cross-platform since Windows `.bin/` shims are not node-executable but real bin scripts are.
+
+### Fixed
+
+- **Hooks:** "not found - skipping" warnings previously set the failure flag and blocked every edit. Skipped checks are now non-blocking, render as ⊘ in the status line, and surface their reason in the pass message.
+
 ## [2.2.5] - 2026-06-10
 
 ### Fixed
