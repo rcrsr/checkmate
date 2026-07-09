@@ -64,6 +64,9 @@ Report:
   - Any `npx` usage: `npx` re-resolves the package on every run and can fetch from the npm registry mid-hook. Re-run `checkmate:detect-environment` and replace the check with the resolved bin path from its `bins` map (`{ "command": "node", "args": ["node_modules/<pkg>/<bin-path>", ...] }`).
   - Manager mismatch (e.g. `pnpm exec` configured in a project that now uses npm): update to the currently detected manager's exec pattern.
   - Stale bin paths: a configured `node_modules/<pkg>/<bin-path>` that no longer exists (package removed, or bin path moved after an upgrade). Re-resolve the path via `checkmate:detect-environment`, or if the package is gone, recommend reinstalling it via the detected manager (`pnpm add -D` / `yarn add -D` / `npm i -D` / `bun add -d`).
+  - `ruff check` without `--output-format=concise`: ruff 0.15 changed the default output to a multi-line format the `ruff` parser cannot match, degrading diagnostics to a raw text dump. Add `--output-format=concise` before `$FILE`.
+  - `oxlint` without `--format=unix --deny-warnings`: without `--format=unix` the output does not match the `oxlint` parser, and without `--deny-warnings` warning-level findings exit 0 and are never reported. Add both flags, and set `"parser": "oxlint"` if the check still uses `generic`.
+  - `oxfmt` checks using the `generic` parser: switch to `"parser": "prettier"` (boolean pass/fail) so failures report as a clean "File needs formatting" instead of a raw text dump.
 
 ### Step 4: Discover New Tools
 
@@ -74,6 +77,8 @@ Using the detected invocation pattern, check for tools that aren't in the config
 <exec> prettier --version 2>/dev/null && echo "prettier available"
 <exec> eslint --version 2>/dev/null && echo "eslint available"
 <exec> biome --version 2>/dev/null && echo "biome available"
+<exec> oxlint --version 2>/dev/null && echo "oxlint available"
+<exec> oxfmt --version 2>/dev/null && echo "oxfmt available"
 <exec> tsc-files --version 2>/dev/null && echo "tsc-files available"
 ```
 

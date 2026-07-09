@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Parsers:** Dedicated `oxlint` parser for `--format=unix` output (`path:line:col: message [Severity/rule]`), emitting structured line/column/rule diagnostics instead of a raw text dump. oxlint checks require `--format=unix --deny-warnings` since warnings exit 0 otherwise and are never reported. `oxfmt --check` maps to the existing `prettier` parser.
+- **Skills:** oxlint and oxfmt in init/refresh tool discovery, config examples, and refresh's wrong-invocation-pattern checks.
 - **Hooks:** Runtime pre-flight in the PostToolUse quality hook. Path-like commands/args are existence-checked before spawning. Missing `node_modules` paths skip the check with a "run `<manager> install`" hint, with manager inferred from the root lockfile. `MODULE_NOT_FOUND` spawn output also maps to a skip.
 
 ### Changed
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Hooks:** "not found - skipping" warnings previously set the failure flag and blocked every edit. Skipped checks are now non-blocking, render as ⊘ in the status line, and surface their reason in the pass message.
+- **Parsers:** `ruff check` invocations now pass `--output-format=concise`. Ruff 0.15 changed the default output to a multi-line format the `ruff` parser cannot match, silently degrading diagnostics to the generic raw dump.
 
 ## [2.2.5] - 2026-06-10
 

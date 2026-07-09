@@ -107,6 +107,8 @@ For pnpm/yarn/bun environments, use the detected exec pattern directly:
 <exec> prettier --version 2>/dev/null && echo "prettier available"
 <exec> eslint --version 2>/dev/null && echo "eslint available"
 <exec> biome --version 2>/dev/null && echo "biome available"
+<exec> oxlint --version 2>/dev/null && echo "oxlint available"
+<exec> oxfmt --version 2>/dev/null && echo "oxfmt available"
 <exec> tsc-files --version 2>/dev/null && echo "tsc-files available"
 ```
 
@@ -114,6 +116,8 @@ For npm environments, do not append the tool name to a generic exec prefix. Test
 ```bash
 node node_modules/eslint/bin/eslint.js --version 2>/dev/null && echo "eslint available"
 node node_modules/prettier/bin/prettier.cjs --version 2>/dev/null && echo "prettier available"
+node node_modules/oxlint/bin/oxlint --version 2>/dev/null && echo "oxlint available"
+node node_modules/oxfmt/bin/oxfmt --version 2>/dev/null && echo "oxfmt available"
 node <bins.tsc-files> --version 2>/dev/null && echo "tsc-files available"
 ```
 If the `bins` map from the detect agent already lists a tool, treat it as available without re-probing; only probe for tools the agent did not resolve. If a tool is missing from `bins` (no `node_modules/<pkg>` directory), it is unavailable, do not guess a path.
@@ -170,6 +174,7 @@ command -v shfmt && shfmt --version
 - Python + pip: `pip install ruff`
 - TypeScript + pnpm: `pnpm add -D prettier eslint typescript`
 - TypeScript + npm: `npm install -D prettier eslint typescript`
+- Oxc toolchain (alternative to eslint/prettier): `pnpm add -D oxlint oxfmt` / `npm i -D oxlint oxfmt`
 - TypeScript (tsc present, tsc-files missing): `pnpm add -D tsc-files` or `npm install -D tsc-files`
 - Go: `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`
 - C/C++ (macOS): `brew install llvm` (note: use full path `/opt/homebrew/opt/llvm/bin/clang-format`)
@@ -282,9 +287,10 @@ Based on discovered tools, file types, and **detected invocation pattern**, prop
 
 | Parser | Use For | Output Format |
 |--------|---------|---------------|
-| `ruff` | Ruff linter | `path:line:col: CODE message` |
+| `ruff` | Ruff linter (requires `--output-format=concise`) | `path:line:col: CODE message` |
 | `ty` | ty type checker | Multi-line Rust-style errors |
 | `eslint` | ESLint (with `@typescript-eslint` for type checks) | `path:line:col severity message rule` |
+| `oxlint` | Oxlint (requires `--format=unix --deny-warnings`) | `path:line:col: message [Severity/rule]` |
 | `tsc` | tsc, tsc-files (TypeScript) | `path(line,col): error TScode: message` |
 | `biome` | Biome | `path:line:col rule message` |
 | `prettier` | Any format checker | Pass/fail only (non-empty = fail) |
@@ -317,17 +323,19 @@ All auto-discovered checks include `"_auto": true` so `/checkmate:checkmate-refr
 Python (adapt runner to detected environment):
 ```json
 // uv (uv.lock present)
-{ "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff", "_auto": true }
+{ "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "--output-format=concise", "$FILE"], "parser": "ruff", "_auto": true }
 
 // poetry (poetry.lock present)
-{ "name": "ruff", "command": "poetry", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff", "_auto": true }
+{ "name": "ruff", "command": "poetry", "args": ["run", "ruff", "check", "--output-format=concise", "$FILE"], "parser": "ruff", "_auto": true }
 
 // pipenv (Pipfile present)
-{ "name": "ruff", "command": "pipenv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff", "_auto": true }
+{ "name": "ruff", "command": "pipenv", "args": ["run", "ruff", "check", "--output-format=concise", "$FILE"], "parser": "ruff", "_auto": true }
 
 // global install or activated venv
-{ "name": "ruff", "command": "ruff", "args": ["check", "$FILE"], "parser": "ruff", "_auto": true }
+{ "name": "ruff", "command": "ruff", "args": ["check", "--output-format=concise", "$FILE"], "parser": "ruff", "_auto": true }
 ```
+
+**`ruff check` requires `--output-format=concise`.** Ruff 0.15 changed the default output to a multi-line "full" format with code frames that the `ruff` parser cannot match, so diagnostics degrade to a raw text dump. The concise format (`path:line:col: CODE message`) is what the parser expects.
 
 TypeScript/JavaScript (adapt runner to detected package manager):
 ```json
@@ -343,6 +351,19 @@ TypeScript/JavaScript (adapt runner to detected package manager):
 // bun (bun.lockb present)
 { "name": "eslint", "command": "bun", "args": ["eslint", "$FILE"], "parser": "eslint", "_auto": true }
 ```
+
+Oxc toolchain (oxlint/oxfmt, same runner adaptation):
+```json
+// oxlint - pnpm form; npm uses the resolved bin path from `bins`
+{ "name": "oxlint", "command": "pnpm", "args": ["exec", "oxlint", "--format=unix", "--deny-warnings", "$FILE"], "parser": "oxlint", "_auto": true }
+{ "name": "oxlint", "command": "node", "args": ["node_modules/oxlint/bin/oxlint", "--format=unix", "--deny-warnings", "$FILE"], "parser": "oxlint", "_auto": true }
+
+// oxfmt - format check, boolean outcome, reuse the prettier parser
+{ "name": "oxfmt", "command": "pnpm", "args": ["exec", "oxfmt", "--check", "$FILE"], "parser": "prettier", "_auto": true }
+{ "name": "oxfmt", "command": "node", "args": ["node_modules/oxfmt/bin/oxfmt", "--check", "$FILE"], "parser": "prettier", "_auto": true }
+```
+
+**oxlint requires `--format=unix --deny-warnings`.** The unix format (`path:line:col: message [Severity/rule]`) is what the `oxlint` parser expects, and `--deny-warnings` makes warning-level findings produce a non-zero exit code; without it oxlint exits 0 on warnings and the hook never parses the output.
 
 **Never configure `npx` for any check.** `npx` re-resolves the package on every invocation (215ms vs 72ms per direct `node` call to eslint's bin script) and can fetch from the npm registry mid-hook if the tool is not installed locally. The quality-check hook runs synchronously on every file edit and must never touch the network. For npm environments, always invoke the resolved bin path from the detect agent's `bins` map with `node`, as shown above.
 
@@ -400,7 +421,7 @@ Shell scripts:
       "checks": {
         ".py": [
           { "name": "ruff format", "command": "uv", "args": ["run", "ruff", "format", "--check", "$FILE"], "parser": "prettier", "_auto": true },
-          { "name": "ruff check", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff", "_auto": true },
+          { "name": "ruff check", "command": "uv", "args": ["run", "ruff", "check", "--output-format=concise", "$FILE"], "parser": "ruff", "_auto": true },
           { "name": "ty", "command": "uv", "args": ["run", "ty", "check", "$FILE"], "parser": "ty", "_auto": true }
         ]
       }

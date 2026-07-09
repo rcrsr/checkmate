@@ -71,7 +71,7 @@ Use `checkmate-refresh` to sync config with installed tools:
       "paths": ["."],
       "checks": {
         ".py": [
-          { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff" }
+          { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "--output-format=concise", "$FILE"], "parser": "ruff" }
         ],
         ".ts,.tsx": [
           { "name": "eslint", "command": "pnpm", "args": ["exec", "eslint", "$FILE"], "parser": "eslint" }
@@ -101,7 +101,7 @@ Use `checkmate-refresh` to sync config with installed tools:
       "paths": ["services/api"],
       "checks": {
         ".py": [
-          { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "$FILE"], "parser": "ruff" }
+          { "name": "ruff", "command": "uv", "args": ["run", "ruff", "check", "--output-format=concise", "$FILE"], "parser": "ruff" }
         ]
       }
     }
@@ -177,11 +177,12 @@ Required fields: `file`, `line`, `message`. Optional: `column`.
 
 | Parser | Tools |
 |--------|-------|
-| `ruff` | ruff check, ruff format |
+| `ruff` | ruff check (with `--output-format=concise`) |
 | `ty` | ty type checker |
 | `eslint` | eslint |
+| `oxlint` | oxlint (with `--format=unix --deny-warnings`) |
 | `tsc` | TypeScript compiler |
-| `prettier` | prettier, biome format |
+| `prettier` | prettier, oxfmt --check, ruff format --check, biome format |
 | `biome` | biome lint |
 | `jsonl` | Custom tools with JSON Lines output |
 | `gcc` | clang-format, clang-tidy, shellcheck --format=gcc |
@@ -203,6 +204,7 @@ Required fields: `file`, `line`, `message`. Optional: `column`.
 |------|-----------------|
 | `ruff format` | `--check` |
 | `prettier` | `--check` |
+| `oxfmt` | `--check` |
 | `rustfmt` | `--check` |
 | `clang-format` | `--dry-run -Werror` |
 

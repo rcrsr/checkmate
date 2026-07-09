@@ -66,13 +66,15 @@ Check if output matches a predefined parser:
 
 | Parser | Expected Format | Example |
 |--------|-----------------|---------|
-| `ruff` | `path:line:col: CODE message` | `main.py:10:5: E501 Line too long` |
+| `ruff` | `path:line:col: CODE message` (ruff needs `--output-format=concise`) | `main.py:10:5: E501 Line too long` |
 | `ty` | `error[rule]: msg` + `--> path:line:col` | Multi-line Rust-style |
 | `eslint` | `path:line:col severity message rule` | `app.ts:5:1 error msg no-console` |
+| `oxlint` | `path:line:col: message [Severity/rule]` (oxlint needs `--format=unix --deny-warnings`) | `app.ts:5:1: msg [Warning/eslint(no-console)]` |
 | `tsc` | `path(line,col): error TScode: message` | `app.ts(5,1): error TS2304: msg` |
 | `biome` | `path:line:col rule message` | `app.ts:5:1 lint/style msg` |
 | `prettier` | Pass/fail only (no structured diagnostics) | Any non-empty output = fail |
 | `jsonl` | JSON Lines with file/line/message fields | `{"file":"x.ts","line":10,"message":"err"}` |
+| `gcc` | `path:line:col: severity: message [rule]` | `main.c:10:5: error: bad code` |
 | `generic` | Fallback - returns raw output truncated | Use when no pattern matches |
 
 ### Step 4: Build Custom Regex (if needed)

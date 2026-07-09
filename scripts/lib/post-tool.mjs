@@ -40,7 +40,7 @@ import { validateConfig } from "./validate.mjs";
 // }
 //
 // Parser can be:
-// - string: predefined parser name (ruff, ty, eslint, tsc, prettier, biome, generic)
+// - string: predefined parser name (ruff, ty, eslint, oxlint, tsc, prettier, biome, generic, jsonl, gcc)
 // - object: { pattern: "regex with named groups", severity?: "error"|"warning" }
 //   Named groups: line, column, message, rule, severity (all optional)
 // =============================================================================
@@ -316,6 +316,25 @@ const parsers = {
           message: match[4],
           rule: match[5],
           severity: match[3],
+        });
+      }
+    }
+    return results;
+  },
+
+  oxlint(output) {
+    const results = [];
+    const lines = output.split("\n").filter((l) => l.trim());
+
+    for (const line of lines) {
+      const match = line.match(/:(\d+):(\d+): (.+) \[(\w+)\/(.+)\]$/);
+      if (match) {
+        results.push({
+          line: parseInt(match[1], 10),
+          column: parseInt(match[2], 10),
+          message: match[3],
+          rule: match[5],
+          severity: match[4].toLowerCase() === "error" ? "error" : "warning",
         });
       }
     }

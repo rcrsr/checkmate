@@ -46,7 +46,7 @@
           {
             "name": "ruff check",
             "command": "uv",
-            "args": ["run", "ruff", "check", "$FILE"],
+            "args": ["run", "ruff", "check", "--output-format=concise", "$FILE"],
             "parser": "ruff",
             "_auto": true
           }
