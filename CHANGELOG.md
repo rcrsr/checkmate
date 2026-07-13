@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Quality Hook:** Checks on files inside a linked git worktree (e.g. `.claude/worktrees/<name>`) now run from the worktree root instead of `CLAUDE_PROJECT_DIR`, using the worktree's own `.claude/checkmate.json` when present. Previously the hook ran tools from the main checkout, which broke hierarchical config resolution (oxlint rejected the worktree's `.oxlintrc.json` as an illegal nested config with "Failed to parse oxlint configuration file") and rendered `$FILE` in `<reproduce-with>` relative to the main root, so pasting the command from the worktree cwd doubled the worktree path segment. Environment `paths`/`exclude` matching now also operates on worktree-relative paths. Plain nested repos and submodules keep the previous behavior.
+
 ## [2.3.0] - 2026-07-09
 
 ### Added

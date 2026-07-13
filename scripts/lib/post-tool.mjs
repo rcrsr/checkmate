@@ -176,6 +176,43 @@ function getGitDir(projectRoot) {
 }
 
 /**
+ * Resolve the root directory checks should run from for a given file.
+ *
+ * A session that enters a linked git worktree (e.g. .claude/worktrees/<name>)
+ * still has CLAUDE_PROJECT_DIR pointing at the main checkout. Rooting checks
+ * there breaks tools that resolve config hierarchically — oxlint rejects the
+ * worktree's config as an illegal nested config — and makes $FILE in
+ * <reproduce-with> relative to the wrong root, so pasting it from the
+ * worktree cwd doubles the worktree segment.
+ *
+ * Walk up from the file: if the nearest .git marker below projectRoot is a
+ * linked-worktree pointer file (gitdir: .../.git/worktrees/<name>), that
+ * directory is the root. A plain nested repo or submodule keeps projectRoot.
+ */
+function resolveCheckRoot(filePath, projectRoot) {
+  try {
+    let dir = path.dirname(filePath);
+    while (dir !== path.dirname(dir)) {
+      if (dir === projectRoot) return projectRoot;
+      const gitPath = path.join(dir, ".git");
+      if (existsSync(gitPath)) {
+        if (statSync(gitPath).isFile()) {
+          const content = readFileSync(gitPath, "utf-8");
+          if (/^gitdir:.*[\\/]\.git[\\/]worktrees[\\/]/m.test(content)) {
+            return dir;
+          }
+        }
+        return projectRoot;
+      }
+      dir = path.dirname(dir);
+    }
+  } catch {
+    // fail open - keep the configured project root
+  }
+  return projectRoot;
+}
+
+/**
  * Detect if repository is in a git operation state where running
  * checks could interfere. Uses file-based detection for speed and reliability.
  */
@@ -743,9 +780,17 @@ export async function run() {
   }
 
   // Load config
-  const { config, projectRoot } = loadConfig();
+  let { config, projectRoot } = loadConfig();
   if (!projectRoot) {
     pass("CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment");
+  }
+
+  // Files inside a linked worktree are checked from the worktree root,
+  // using the worktree's own config when it has one
+  const checkRoot = resolveCheckRoot(filePath, projectRoot);
+  if (checkRoot !== projectRoot) {
+    const worktreeConfig = loadConfig(checkRoot).config;
+    if (worktreeConfig) config = worktreeConfig;
   }
 
   const isConfigFile = filePath.endsWith(".claude/checkmate.json");
@@ -756,7 +801,7 @@ export async function run() {
   }
 
   // Skip during certain git operations
-  const gitCheck = shouldSkipForGitOperation(config, projectRoot);
+  const gitCheck = shouldSkipForGitOperation(config, checkRoot);
   if (gitCheck.skip) {
     pass(`skipped (git ${gitCheck.operation} in progress)`);
   }
@@ -771,9 +816,9 @@ export async function run() {
   let hasFailures = false;
 
   if (config) {
-    checkResult = getChecksForFile(config, filePath, projectRoot);
+    checkResult = getChecksForFile(config, filePath, checkRoot);
     for (const check of checkResult.checks) {
-      const { diagnostics: checkDiagnostics, skipped, command } = runCheck(check, filePath, projectRoot);
+      const { diagnostics: checkDiagnostics, skipped, command } = runCheck(check, filePath, checkRoot);
       if (skipped) {
         results.push({ name: check.name, passed: true, skipped: true, skipMessage: checkDiagnostics[0]?.message });
         continue;
