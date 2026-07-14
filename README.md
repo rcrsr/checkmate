@@ -13,6 +13,7 @@ Automated code quality enforcement for Claude Code. Runs your linters, formatter
 - [Tool Guidelines](#tool-guidelines)
 - [Agent Delegation](#agent-delegation)
 - [Task Reviewers](#task-reviewers)
+- [Project Boundaries](#project-boundaries)
 - [Git Operations](#git-operations)
 - [Skills](#skills)
 - [Validation](#validation)
@@ -320,6 +321,30 @@ parent-thread hook carries `subagent_type` when a background agent finishes.
 `TaskCompleted` event exists in current builds but carries task metadata
 only and is unverified for agent completions.) If you rely on `review`
 rules, run those agents in the foreground.
+
+## Project Boundaries
+
+Checkmate decides which config owns an edited file by walking up from the file toward the project root. Two markers do separate jobs:
+
+- **`.git` terminates the walk.** It marks a project boundary. On its own it grants no trust and supplies no config.
+- **`.claude/checkmate.json` supplies the config.** The nearest one at or above the file wins.
+
+Files resolving outside the project root are skipped, so editing `~/.zshrc` never triggers your project's linters.
+
+When the walk stops at a boundary that ships no config of its own, the boundary type decides what happens:
+
+| Boundary | Own `checkmate.json` | Behavior |
+|----------|----------------------|----------|
+| Project root | yes | Config applies. The common case. |
+| Worktree | yes | Its config applies |
+| Worktree | no | Inherits the session config. Same project, different checkout. |
+| Nested repo or submodule | yes | Its config applies. The parent's `paths` and `exclude` do not reach in. |
+| Nested repo or submodule | no | Skipped. A different project, so parent policy does not apply. |
+| Outside project root | n/a | Skipped |
+
+A nested repo that ships its own `checkmate.json` therefore owns its subtree. `$FILE` and the `<reproduce-with>` command are relative to that repo's root, not the parent's.
+
+Symlinks are resolved before any of this, so a symlinked checkout or a symlinked `CLAUDE_PROJECT_DIR` behaves the same as a real path.
 
 ## Git Operations
 

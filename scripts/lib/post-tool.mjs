@@ -16,7 +16,15 @@ import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { loadConfig, readStdinJson, pass, block } from "./lib.mjs";
+import {
+  loadConfig,
+  readStdinJson,
+  pass,
+  block,
+  resolveFileRoot,
+  fileMatchesPaths,
+  matchesExcludePattern,
+} from "./lib.mjs";
 import { validateConfig } from "./validate.mjs";
 
 // =============================================================================
@@ -44,41 +52,6 @@ import { validateConfig } from "./validate.mjs";
 // - object: { pattern: "regex with named groups", severity?: "error"|"warning" }
 //   Named groups: line, column, message, rule, severity (all optional)
 // =============================================================================
-
-/**
- * Check if a file path matches an exclude pattern.
- * Supports simple glob patterns: ** (any path), * (any segment)
- */
-function matchesExcludePattern(relativePath, pattern) {
-  const regexPattern = pattern
-    .replace(/\*\*/g, "{{GLOBSTAR}}")
-    .replace(/\*/g, "[^/]*")
-    .replace(/{{GLOBSTAR}}/g, ".*")
-    .replace(/\//g, "\\/");
-  const regex = new RegExp(`^${regexPattern}$`);
-  return regex.test(relativePath);
-}
-
-/**
- * Check if a file path starts with any of the given paths.
- */
-function fileMatchesPaths(relativePath, paths) {
-  const fileDir = path.dirname(relativePath);
-
-  for (const envPath of paths) {
-    const normalizedEnvPath = envPath === "." ? "" : envPath;
-    if (
-      normalizedEnvPath === "" ||
-      relativePath.startsWith(normalizedEnvPath + "/") ||
-      relativePath === normalizedEnvPath ||
-      fileDir === normalizedEnvPath ||
-      fileDir.startsWith(normalizedEnvPath + "/")
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
 
 /**
  * Get checks for a file extension from an environment's checks config.
@@ -730,7 +703,7 @@ function validateConfigFile(configPath) {
 
 export async function run() {
   const input = await readStdinJson();
-  const filePath = input.tool_input?.file_path;
+  let filePath = input.tool_input?.file_path;
 
   // No file path provided - skip silently
   if (!filePath) {
@@ -743,20 +716,59 @@ export async function run() {
   }
 
   // Load config
-  const { config, projectRoot } = loadConfig();
+  const { config: sessionConfig, projectRoot } = loadConfig();
   if (!projectRoot) {
     pass("CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment");
   }
 
+  // A project's checks only ever apply to that project's own files. Files
+  // outside the root, in a linked worktree, or in a nested repo/submodule
+  // each need their own config selection - see resolveFileRoot in lib.mjs.
+  // resolveFileRoot returns filePath realpath'd into the same coordinate
+  // space as root; every downstream use of filePath must be this resolved
+  // value, never the raw tool_input path, or a symlinked ancestor puts
+  // path.relative(root, filePath) in 2 different coordinate spaces.
+  const { root, kind, filePath: resolvedFilePath } = resolveFileRoot(filePath, projectRoot);
+  filePath = resolvedFilePath;
+
+  if (kind === "outside") {
+    pass("skipped (outside project)");
+  }
+
   const isConfigFile = filePath.endsWith(".claude/checkmate.json");
+
+  // root is a terminator (see resolveFileRoot): it stops the upward walk
+  // but grants no config by itself. Its type decides the fallback when it
+  // has no checkmate.json of its own - worktree is the same repo in a
+  // different checkout, so the session config legitimately reaches it;
+  // nested-repo is a different project, so the parent's config must not
+  // reach in.
+  let config = sessionConfig;
+  if (kind === "worktree") {
+    // Same repo, same tracked config; fall back to the session config if
+    // the worktree itself has no (untracked/gitignored) checkmate.json.
+    config = loadConfig(root).config || sessionConfig;
+  } else if (kind === "nested-repo") {
+    // A different repo must own itself; the parent must never impose its
+    // toolchain on a nested repo or submodule that hasn't shipped its own
+    // config. A missing config still falls through to the shared
+    // !config && !isConfigFile guard below, so an invalid (unparsable)
+    // checkmate.json in the nested repo still reaches the schema
+    // self-check instead of passing silently.
+    config = loadConfig(root).config;
+  }
 
   // No config and not editing the config file - nothing to do
   if (!config && !isConfigFile) {
-    pass("disabled (run /checkmate:init to configure)");
+    pass(
+      kind === "nested-repo"
+        ? "skipped (nested repo has no checkmate.json)"
+        : "disabled (run /checkmate:init to configure)"
+    );
   }
 
   // Skip during certain git operations
-  const gitCheck = shouldSkipForGitOperation(config, projectRoot);
+  const gitCheck = shouldSkipForGitOperation(config, root);
   if (gitCheck.skip) {
     pass(`skipped (git ${gitCheck.operation} in progress)`);
   }
@@ -771,9 +783,9 @@ export async function run() {
   let hasFailures = false;
 
   if (config) {
-    checkResult = getChecksForFile(config, filePath, projectRoot);
+    checkResult = getChecksForFile(config, filePath, root);
     for (const check of checkResult.checks) {
-      const { diagnostics: checkDiagnostics, skipped, command } = runCheck(check, filePath, projectRoot);
+      const { diagnostics: checkDiagnostics, skipped, command } = runCheck(check, filePath, root);
       if (skipped) {
         results.push({ name: check.name, passed: true, skipped: true, skipMessage: checkDiagnostics[0]?.message });
         continue;
