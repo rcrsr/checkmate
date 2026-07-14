@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Quality Hook:** Checks now run only against files the project owns, rooted at the checkout that owns them. A file outside `CLAUDE_PROJECT_DIR` (a sibling repo, a `/tmp` scratchpad) is skipped instead of blocked by an unrelated project's formatter and lint rules. An environment with `"paths": ["."]` previously matched every file on the filesystem, since the empty normalized path short-circuited to a match for any input. Files in a linked git worktree now run from the worktree root, with the correct `cwd`, the correct `node_modules`, and a worktree-relative `$FILE` in `<reproduce-with>`. Agent delegation (PreToolUse) applies the same rule and no longer fires on files the project does not own. ([#8](https://github.com/rcrsr/checkmate/pull/8))
+- **Exclude Patterns:** `matchesExcludePattern()` now escapes regex metacharacters. `.` previously acted as a wildcard, so `"../**"` compiled to `/^..\/.*$/` and silently excluded any two-character top-level directory (`ui/`, `db/`, `js/`). ([#8](https://github.com/rcrsr/checkmate/pull/8))
+
+### Changed
+
+- **Submodules:** A submodule or nested repo now owns itself. It must carry its own `.claude/checkmate.json` or no checks run. Previously the parent's config ran against submodule files from the parent's root, resolving `node_modules` and tool config against the wrong checkout. A submodule that relied on the parent's config runs no checks until it gets one. ([#8](https://github.com/rcrsr/checkmate/pull/8))
+
 ## [2.3.0] - 2026-07-09
 
 ### Added
