@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,6 +72,57 @@ test("pre-tool still denies a main-thread edit of a file inside the project root
     assert.match(output.hookSpecificOutput.permissionDecisionReason, /javascript-engineer/);
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("pre-tool still denies delegation when CLAUDE_PROJECT_DIR is reached through a symlinked alias", () => {
+  // Item 1 / issue: pre-tool.mjs relativized against the raw tool_input
+  // filePath instead of resolveFileRoot's realpath'd filePath. When
+  // CLAUDE_PROJECT_DIR is a symlinked alias, root (real, from the nested
+  // repo's own directory) and the raw filePath (through the alias) land in
+  // 2 different coordinate spaces, so path.relative() produces a
+  // "../"-prefixed path that never matches a non-"." paths entry, silently
+  // degrading to "no agent mapping". This test MUST fail on the pre-fix
+  // code (edit allowed through) and pass after the fix (edit denied).
+  const workspace = realpathSync(mkdtempSync(path.join(tmpdir(), "checkmate-test-")));
+  try {
+    const projectRoot = path.join(workspace, "project");
+    mkdirSync(path.join(projectRoot, ".git", "modules", "sub"), { recursive: true });
+
+    const subRoot = path.join(projectRoot, "sub");
+    mkdirSync(path.join(subRoot, ".claude"), { recursive: true });
+    writeFileSync(
+      path.join(subRoot, ".git"),
+      `gitdir: ${path.join(projectRoot, ".git", "modules", "sub")}\n`
+    );
+
+    // paths: ["nested"] requires a correctly-computed root-relative path;
+    // unlike paths: ["."], it can't short-circuit to "always matches".
+    const subConfig = {
+      environments: [
+        {
+          name: "root",
+          paths: ["nested"],
+          agents: {
+            ".mjs": "javascript-engineer",
+          },
+        },
+      ],
+    };
+    writeFileSync(path.join(subRoot, ".claude", "checkmate.json"), JSON.stringify(subConfig));
+
+    const alias = path.join(workspace, "alias");
+    symlinkSync(projectRoot, alias);
+
+    const filePath = path.join(alias, "sub", "nested", "foo.mjs");
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, "export const x = 1;\n");
+
+    const output = runPreTool(filePath, alias);
+    assert.equal(output.hookSpecificOutput?.permissionDecision, "deny");
+    assert.match(output.hookSpecificOutput.permissionDecisionReason, /javascript-engineer/);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
   }
 });
 

@@ -137,7 +137,7 @@ export async function run() {
   const input = await readStdinJson();
 
   const toolName = input.tool_name;
-  const filePath = input.tool_input?.file_path;
+  let filePath = input.tool_input?.file_path;
 
   // Only handle Edit and Write
   if (toolName !== "Edit" && toolName !== "Write") {
@@ -157,8 +157,13 @@ export async function run() {
 
   // A project's checks only ever apply to that project's own files - see
   // resolveFileRoot in lib.mjs for the containment / worktree / nested-repo
-  // classification shared with post-tool.mjs.
-  const { root, kind } = resolveFileRoot(filePath, projectRoot);
+  // classification shared with post-tool.mjs. resolveFileRoot returns
+  // filePath realpath'd into the same coordinate space as root; every
+  // downstream use of filePath must be this resolved value, never the raw
+  // tool_input path, or a symlinked ancestor breaks the extension/path
+  // matching below.
+  const { root, kind, filePath: resolvedFilePath } = resolveFileRoot(filePath, projectRoot);
+  filePath = resolvedFilePath;
 
   if (kind === "outside") {
     pass("outside project");

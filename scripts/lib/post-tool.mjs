@@ -703,7 +703,7 @@ function validateConfigFile(configPath) {
 
 export async function run() {
   const input = await readStdinJson();
-  const filePath = input.tool_input?.file_path;
+  let filePath = input.tool_input?.file_path;
 
   // No file path provided - skip silently
   if (!filePath) {
@@ -724,7 +724,12 @@ export async function run() {
   // A project's checks only ever apply to that project's own files. Files
   // outside the root, in a linked worktree, or in a nested repo/submodule
   // each need their own config selection - see resolveFileRoot in lib.mjs.
-  const { root, kind } = resolveFileRoot(filePath, projectRoot);
+  // resolveFileRoot returns filePath realpath'd into the same coordinate
+  // space as root; every downstream use of filePath must be this resolved
+  // value, never the raw tool_input path, or a symlinked ancestor puts
+  // path.relative(root, filePath) in 2 different coordinate spaces.
+  const { root, kind, filePath: resolvedFilePath } = resolveFileRoot(filePath, projectRoot);
+  filePath = resolvedFilePath;
 
   if (kind === "outside") {
     pass("skipped (outside project)");
@@ -732,6 +737,12 @@ export async function run() {
 
   const isConfigFile = filePath.endsWith(".claude/checkmate.json");
 
+  // root is a terminator (see resolveFileRoot): it stops the upward walk
+  // but grants no config by itself. Its type decides the fallback when it
+  // has no checkmate.json of its own - worktree is the same repo in a
+  // different checkout, so the session config legitimately reaches it;
+  // nested-repo is a different project, so the parent's config must not
+  // reach in.
   let config = sessionConfig;
   if (kind === "worktree") {
     // Same repo, same tracked config; fall back to the session config if
@@ -739,10 +750,11 @@ export async function run() {
     config = loadConfig(root).config || sessionConfig;
   } else if (kind === "nested-repo") {
     // A different repo must own itself; the parent must never impose its
-    // toolchain on a nested repo or submodule. A missing config still
-    // falls through to the shared !config && !isConfigFile guard below,
-    // so an invalid (unparsable) checkmate.json in the nested repo still
-    // reaches the schema self-check instead of passing silently.
+    // toolchain on a nested repo or submodule that hasn't shipped its own
+    // config. A missing config still falls through to the shared
+    // !config && !isConfigFile guard below, so an invalid (unparsable)
+    // checkmate.json in the nested repo still reaches the schema
+    // self-check instead of passing silently.
     config = loadConfig(root).config;
   }
 
