@@ -10,7 +10,15 @@
 
 import { existsSync, statSync, readFileSync } from "node:fs";
 import * as path from "node:path";
-import { loadConfig, readStdinJson, pass, outputJson } from "./lib.mjs";
+import {
+  loadConfig,
+  readStdinJson,
+  pass,
+  outputJson,
+  resolveFileRoot,
+  fileMatchesPaths,
+  matchesExcludePattern,
+} from "./lib.mjs";
 
 // =============================================================================
 // Extension Matching
@@ -30,40 +38,6 @@ function getAgentForExtension(agentsConfig, ext) {
     }
   }
   return null;
-}
-
-/**
- * Check if a file path starts with any of the given paths.
- */
-function fileMatchesPaths(relativePath, paths) {
-  const fileDir = path.dirname(relativePath);
-
-  for (const envPath of paths) {
-    const normalizedEnvPath = envPath === "." ? "" : envPath;
-    if (
-      normalizedEnvPath === "" ||
-      relativePath.startsWith(normalizedEnvPath + "/") ||
-      relativePath === normalizedEnvPath ||
-      fileDir === normalizedEnvPath ||
-      fileDir.startsWith(normalizedEnvPath + "/")
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Check if a file path matches an exclude pattern.
- */
-function matchesExcludePattern(relativePath, pattern) {
-  const regexPattern = pattern
-    .replace(/\*\*/g, "{{GLOBSTAR}}")
-    .replace(/\*/g, "[^/]*")
-    .replace(/{{GLOBSTAR}}/g, ".*")
-    .replace(/\//g, "\\/");
-  const regex = new RegExp(`^${regexPattern}$`);
-  return regex.test(relativePath);
 }
 
 /**
@@ -176,19 +150,39 @@ export async function run() {
   }
 
   // Load config
-  const { config, projectRoot } = loadConfig();
-  if (!projectRoot || !config) {
+  const { config: sessionConfig, projectRoot } = loadConfig();
+  if (!projectRoot) {
+    pass("no config");
+  }
+
+  // A project's checks only ever apply to that project's own files - see
+  // resolveFileRoot in lib.mjs for the containment / worktree / nested-repo
+  // classification shared with post-tool.mjs.
+  const { root, kind } = resolveFileRoot(filePath, projectRoot);
+
+  if (kind === "outside") {
+    pass("outside project");
+  }
+
+  let config = sessionConfig;
+  if (kind === "worktree") {
+    config = loadConfig(root).config || sessionConfig;
+  } else if (kind === "nested-repo") {
+    config = loadConfig(root).config;
+  }
+
+  if (!config) {
     pass("no config");
   }
 
   // Find agent mapping for this file
-  const requiredAgent = getAgentForFile(config, filePath, projectRoot);
+  const requiredAgent = getAgentForFile(config, filePath, root);
   if (!requiredAgent) {
     pass("no agent mapping");
   }
 
   // Skip during git operations
-  const gitOp = detectGitOperation(projectRoot);
+  const gitOp = detectGitOperation(root);
   if (gitOp) {
     pass(`git ${gitOp} in progress`);
   }
