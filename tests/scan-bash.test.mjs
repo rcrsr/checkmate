@@ -36,7 +36,7 @@ function withFixture(fn) {
         bashLine("sed -i 's/a/b/' app.py", project),
         bashLine("echo hi > notes.py", project),
         bashLine("ls", project),
-        bashLine("cp a.py b.py", project),
+        bashLine("patch a.py fix.diff", project),
         '{"Bash" this is not json',
         JSON.stringify({ message: { content: [{ type: "text", text: "Bash" }] } }),
       ].join("\n") + "\n",
@@ -98,11 +98,34 @@ describe("scan-bash", () => {
     });
   });
 
-  it("lists a cp onto a checked extension in misses", () => {
+  it("lists a patch onto a checked extension in misses", () => {
     withFixture(({ project, transcripts }) => {
       const report = JSON.parse(scan(project, ["--transcripts", transcripts]).stdout);
       assert.equal(report.misses.count, 1);
-      assert.deepEqual(report.misses.samples, ["cp a.py b.py"]);
+      assert.deepEqual(report.misses.samples, ["patch a.py fix.diff"]);
+    });
+  });
+
+  it("counts only commands whose command word writes a checked path", () => {
+    withFixture(({ ws, project, transcripts }) => {
+      const dir = join(ws, "anchored");
+      mkdirSync(dir);
+      writeFileSync(
+        join(dir, "s.jsonl"),
+        [
+          "cd sub && patch a.py fix.diff",
+          "git apply fix.diff a.py",
+          "echo patched a.py",
+          "grep -n patch a.py",
+          "echo ed a.py",
+          "ls | grep cp a.py",
+        ]
+          .map((c) => bashLine(c, project))
+          .join("\n") + "\n",
+      );
+      const report = JSON.parse(scan(project, ["--transcripts", dir]).stdout);
+      assert.deepEqual(report.misses.samples, ["cd sub && patch a.py fix.diff", "git apply fix.diff a.py"]);
+      assert.equal(report.misses.count, 2);
     });
   });
 

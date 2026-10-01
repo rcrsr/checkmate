@@ -10,13 +10,29 @@ Tune `bash.writePatterns` so checkmate detects shell commands that write to chec
 
 This agent edits only the `bash.writePatterns` array in `.claude/checkmate.json`. It never edits `checks`.
 
+## Scope
+
+Patterns detect a write only when the command text names the written file. A command such as `python3 scratch/probe.py`, where the target path lives inside the script, cannot be fixed by any pattern: the hook still finds no path to check. If the misses show this shape, report it as out of scope, with the command, instead of drafting a pattern.
+
+## Stopping Rules
+
+Aim for the 90-95% case. A few simple patterns that fix the largest groups beat many patterns chasing rare shapes. Every added pattern costs matching time on every Bash call and is one more thing to debug.
+
+1. **Rank before fixing.** Group misses and false positives by command shape and sort by count. Fix from the top until the fixed groups cover 90% of the counted problems, then stop.
+2. **Budget: 3 patterns at most.** Count both added patterns and changed built-ins. A pattern stays only if it accounts for 5% or more of the remaining misses or false positives. One fix, such as excluding scratch targets from a built-in, often does most of the work. Look for that first.
+3. **Keep each regex simple.** Under 200 characters, no backreferences, no lookahead spanning long text. A longer regex is a sign that the shape needs a plugin fix, not a pattern.
+4. **Measure with `scan-bash` only.** Do not write labelling or counting scripts: they become a second tool to debug and skew the numbers. Read the samples the report gives and judge them by hand: all of `misses.samples` and all of each `patterns[].samples`.
+5. **List what is left; do not chase it.** Report each remaining shape with its count, marked `accepted` (rare or harmless) or `plugin fix` (a pattern cannot solve it, for example a scan limit or a path the hook cannot see).
+
+Stop as soon as one of these holds: 3 patterns are used, the next candidate is under 5% of what remains, or the fixed groups cover 90%.
+
 ## Instructions
 
 You are helping configure Bash-write detection for the checkmate plugin. Your goal is to:
 1. Measure how the current patterns perform on recorded Bash commands
-2. Find write commands the patterns miss
-3. Draft new patterns and re-score them without touching the config
-4. Keep only patterns that catch more writes and no read-only commands
+2. Rank the misses and false positives by command shape
+3. Draft the fewest patterns that cover the top groups and re-score them without touching the config
+4. Keep only patterns that meet the stopping rules and catch no read-only commands
 5. Save the kept patterns and validate the config
 
 ### Input
@@ -56,9 +72,11 @@ Read these fields from the report:
 | `patterns[].slow` | `true` when the pattern is too slow |
 | `paths` | Most frequently written project paths, with `count` |
 
-Group `misses.samples` by command shape. Each group is a candidate pattern.
+Group `misses.samples` by command shape and sort the groups by size. Scale each group's share to `misses.count`: the report holds only the first 20 samples, so the counts are estimates.
 
-Review `patterns[].samples` for existing patterns. Note any sample that is a read-only command (false positive).
+Review `patterns[].samples` for existing patterns. Note any sample that is a read-only command or a scratch-file write (false positive) and group those by shape too. Compare each group with the others and with `patterns[].hits`. Take the largest group first. A built-in that produces most of the false positives is the first candidate, because one change to it can remove them all.
+
+Write the ranked list down before drafting anything: shape, estimated count, share of the total.
 
 ### Step 3: Draft Candidate Patterns
 
@@ -67,7 +85,7 @@ Write a patterns file in the scratch directory, outside the project. Never write
 ```json
 {
   "writePatterns": [
-    { "name": "mv-cp", "match": "\\b(?:mv|cp)\\s" }
+    { "name": "sponge", "match": "\\|\\s*sponge\\s" }
   ]
 }
 ```
@@ -79,6 +97,8 @@ Each entry has a unique `name` and a `match` regex string. A name that equals an
 - Double-escape backslashes in JSON (`\\s` not `\s`)
 - Anchor on the command word (`\\b`) to avoid matching file names
 - Keep patterns cheap; the scan flags a pattern `slow` above its time limit
+- Stay under 200 characters, with no backreferences and no lookahead that spans long text
+- Draft only for the top-ranked groups from Step 2, within the 3-pattern budget
 
 ### Step 4: Re-score
 
@@ -96,9 +116,11 @@ The candidate file replaces the config's `bash` section for this run.
 
 ### Step 5: Decide What to Keep
 
-Keep a pattern only if both hold:
-- `withPaths` is higher than the baseline
+Keep a pattern only if all hold:
+- `withPaths` is higher than the baseline, or its false-positive hits drop
+- It accounts for 5% or more of the remaining misses or false positives
 - Its `patterns[].samples` contain no read-only commands (e.g., `cat`, `ls`, `git diff`, `grep`)
+- The total is still within the 3-pattern budget
 
 Drop any pattern with `slow: true`. For a rejected pattern, narrow the regex and repeat Steps 4-5, or discard it. Compare `outsideOnly` too: patterns whose hits all land outside the project add noise.
 
@@ -120,14 +142,13 @@ Optionally re-run Step 1 once more to confirm the final `withPaths`.
 
 ## Known Patterns
 
-Start Step 3 from this catalog instead of writing regexes from scratch. Each entry passes validation and has positive and negative unit checks. Copy only the entries whose command appears in `misses.samples`, then re-score them in Step 4. The built-in defaults (`sed-inplace`, `perl-inplace`, `python-write`, `node-write`, `redirect`, `tee`) are not repeated here.
+Start Step 3 from this catalog instead of writing regexes from scratch. Each entry passes validation and has positive and negative unit checks. Copy only the entries whose command appears in `misses.samples`, then re-score them in Step 4. Catalog entries count toward the 3-pattern budget and must meet the 5% rule like any other. The built-in defaults (`sed-inplace`, `perl-inplace`, `python-write`, `node-write`, `redirect`, `tee`, `cp-mv-into-repo`) are not repeated here.
 
-**Opt-in only: `mv-cp`, `install`, `rsync`, `download-out`.** These move, copy, or download content that already exists. They rarely replace an Edit or Write, so they are not defaults and the agent must not add them on its own. Add one only when the user names it, or when the report shows a repo file edited by a move or copy (for example `cp edited.py src/app.py`).
+**Opt-in only: `install`, `rsync`, `download-out`.** These move, copy, or download content that already exists. They rarely replace an Edit or Write, so they are not defaults and the agent must not add them on its own. Add one only when the user names it, or when the report shows a repo file edited by one of these commands. `cp` and `mv` into the repo are already covered by the built-in `cp-mv-into-repo`.
 
 ```json
 {
   "writePatterns": [
-    { "name": "mv-cp", "match": "(?:^|[;&|(\\n]\\s*)(?:mv|cp)\\s+\\S+\\s+\\S" },
     { "name": "install", "match": "(?:^|[;&|(\\n]\\s*)install\\s+\\S+\\s+\\S" },
     { "name": "rsync", "match": "(?:^|[;&|(\\n]\\s*)rsync\\s" },
     { "name": "dd-of", "match": "\\bdd\\s[^;&|\\n]*\\bof=" },
@@ -147,7 +168,6 @@ Start Step 3 from this catalog instead of writing regexes from scratch. Each ent
 
 | Name | Catches | Caveat |
 |------|---------|--------|
-| `mv-cp` (opt-in) | `mv a b`, `cp -r a b` | `cp repo/file /tmp/file.bak` matches because the source is a repo file; the git dirty check drops it |
 | `rsync` (opt-in) | `rsync -a src/ dst/` | Syncs to scratch directories are dropped by path resolution |
 | `download-out` (opt-in) | `curl -o f`, `wget -O f` | `/dev/null` targets are excluded |
 | `install` (opt-in) | `install -m 644 a /dst/a` | Copies a file, like `cp` |
@@ -160,6 +180,8 @@ Formatters and fixers (`ruff --fix`, `prettier --write`, `eslint --fix`, `gofmt 
 
 Report:
 1. Baseline and final `withPaths`, `noPath`, and `outsideOnly`
-2. Each pattern added, with its `name` and `match`
-3. Patterns rejected and why (read-only samples, no gain, `slow`)
-4. The `validate` result
+2. The ranked list of shapes from Step 2, with estimated counts
+3. Each pattern added, with its `name`, `match`, and the share of problems it covers
+4. Patterns rejected and why (under 5%, read-only samples, no gain, `slow`, over budget)
+5. Remaining shapes with their counts, each marked `accepted` or `plugin fix`
+6. The `validate` result

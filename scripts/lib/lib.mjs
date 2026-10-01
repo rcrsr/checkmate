@@ -317,7 +317,16 @@ export function matchesExcludePattern(relativePath, pattern) {
 // Bash Write Detection (shared by post-bash.mjs and scan-bash)
 // =============================================================================
 
-const BASH_SCAN_LIMIT = 8000;
+// Safety valve against pathological commands, not a working limit: only the
+// head of a longer command is scanned. Long heredoc scripts must fit under it.
+const BASH_SCAN_LIMIT = 100000;
+
+// Scratch and system targets that are never project files.
+const SCRATCH_TARGETS = "/tmp/|/dev/|/proc/|\\$TMPDIR/|\\$\\{TMPDIR\\}/|~/\\.claude/|\\$HOME/\\.claude/";
+
+// Up to 3 trailing redirections (`2>&1`, `>&2`, `2>/dev/null`, `&>file`, `> file`)
+// that may follow a cp/mv destination without being the destination itself.
+const TRAILING_REDIRECTS = "(?:[ \\t]+[0-9&]?>{1,2}&?[ \\t]*[^\\s;&|<>)]*)?".repeat(3);
 
 /**
  * Default patterns that flag a Bash command as a likely file write.
@@ -328,8 +337,21 @@ export const DEFAULT_WRITE_PATTERNS = [
   { name: "perl-inplace", match: "\\bperl\\s+-[a-zA-Z]*i" },
   { name: "python-write", match: "\\.write_text\\(|\\bopen\\([^)\\n]{0,200},\\s*['\"][wa]" },
   { name: "node-write", match: "writeFileSync|appendFileSync" },
-  { name: "redirect", match: "(?:^|[^0-9&><=-])>{1,2}\\s*['\"]?[^\\s&|;<>'\"]+\\.[A-Za-z0-9]+\\b" },
+  {
+    name: "redirect",
+    match: `(?:^|[^0-9&><=-])>{1,2}\\s*['"]?(?!(?:${SCRATCH_TARGETS}))[^\\s&|;<>'"]+\\.[A-Za-z0-9]+\\b`,
+  },
   { name: "tee", match: "\\btee\\s" },
+  // Known limits: matches only when cp/mv is a command word right after the
+  // start or one of ;&|( or a newline (so `sudo cp`, `x=1 cp`, `time cp`,
+  // `then cp` are not matched). The destination is taken as the last argument,
+  // so `cp -t dest/ a.py` is judged by `a.py` and `cp a b > /tmp/log` is not
+  // matched; trailing redirections (up to 3) are skipped when picking the
+  // destination. The git dirty check drops any resulting false positive.
+  {
+    name: "cp-mv-into-repo",
+    match: `(?:^|[;&|(\\n])[ \\t]*(?:cp|mv)[ \\t]+(?![ \\t])[^;&|>\\n)]{0,300}[ \\t](?!['"]?(?:${SCRATCH_TARGETS}))[^\\s;&|>)]+(?=${TRAILING_REDIRECTS}[ \\t]*(?:[;&|\\n)]|$))`,
+  },
 ];
 
 /**

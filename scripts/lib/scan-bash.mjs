@@ -31,7 +31,9 @@ const MISS_SAMPLE_LIMIT = 20;
 const TOP_PATHS_LIMIT = 50;
 const SAMPLE_MAX_CHARS = 200;
 const SLOW_MS_PER_1000 = 5;
-const MISS_COMMAND_RE = /\b(?:mv|cp|patch|ed)\b|\bgit\s+apply\b/;
+// A file-writing command word (mv, cp, patch, ed, git apply) at the start of a
+// command or right after ; & | ( or a newline, so `echo ed` and `grep patch` do not count.
+const MISS_COMMAND_RE = /(?:^|[;&|(\n])[ \t]*(?:mv|cp|patch|ed|git[ \t]+apply)\s/;
 
 /**
  * Parse argv into options. Returns an error message for an unknown argument.

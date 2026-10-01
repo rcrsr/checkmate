@@ -26,7 +26,7 @@ describe("DEFAULT_WRITE_PATTERNS", () => {
   it("lists patterns in the documented order", () => {
     assert.deepEqual(
       DEFAULT_WRITE_PATTERNS.map((p) => p.name),
-      ["sed-inplace", "perl-inplace", "python-write", "node-write", "redirect", "tee"],
+      ["sed-inplace", "perl-inplace", "python-write", "node-write", "redirect", "tee", "cp-mv-into-repo"],
     );
   });
 });
@@ -94,6 +94,54 @@ describe("detectBashWrites patterns", () => {
     assert.ok(detect("echo a >>x.py").matched.includes("redirect"));
   });
 
+  it("does not match a redirect onto a scratch or system target", () => {
+    const commands = [
+      "echo a > /tmp/x.log",
+      "echo a >>/tmp/x.log",
+      "echo a > /dev/null",
+      "echo a > $TMPDIR/x.log",
+      'echo a > "${TMPDIR}/x.log"',
+      "echo a > ~/.claude/x.json",
+      "echo a > $HOME/.claude/x.json",
+    ];
+    for (const command of commands) {
+      assert.ok(!detect(command).matched.includes("redirect"), command);
+    }
+  });
+
+  it("matches a repo redirect that follows a scratch redirect", () => {
+    const r = detect("cmd > /tmp/a.log && echo x > src/b.py");
+    assert.ok(r.matched.includes("redirect"));
+    assert.deepEqual(r.paths, ["/proj/src/b.py"]);
+  });
+
+  it("matches cp and mv into the repo", () => {
+    assert.ok(detect("cp /tmp/bak.py src/app.py").matched.includes("cp-mv-into-repo"));
+    assert.ok(detect("mv a.py b.py").matched.includes("cp-mv-into-repo"));
+    assert.ok(detect("cp -r a b/").matched.includes("cp-mv-into-repo"));
+    assert.ok(detect("cd x && cp a.py b.py; echo done").matched.includes("cp-mv-into-repo"));
+  });
+
+  it("does not match cp or mv out to a scratch or system target", () => {
+    assert.ok(!detect("cp src/app.py /tmp/app.py.bak").matched.includes("cp-mv-into-repo"));
+    assert.ok(!detect('cp a "$TMPDIR/b"').matched.includes("cp-mv-into-repo"));
+    assert.ok(!detect("mv a ~/.claude/b").matched.includes("cp-mv-into-repo"));
+  });
+
+  it("ignores a trailing redirection when finding the cp or mv destination", () => {
+    assert.ok(!detect("cp src/a.py /tmp/b.py 2>&1").matched.includes("cp-mv-into-repo"));
+    assert.ok(!detect("cp a.py /tmp/x 2>/dev/null").matched.includes("cp-mv-into-repo"));
+    assert.ok(!detect('mv a "$TMPDIR/b" 2>&1').matched.includes("cp-mv-into-repo"));
+    assert.ok(detect("cp a.py b.py 2>&1").matched.includes("cp-mv-into-repo"));
+    assert.ok(detect("cp a.py b.py 2>/dev/null").matched.includes("cp-mv-into-repo"));
+    assert.ok(detect("cp /tmp/x.py src/a.py 2>&1").matched.includes("cp-mv-into-repo"));
+  });
+
+  it("anchors cp and mv to the command word", () => {
+    assert.ok(!detect("git mv a b").matched.includes("cp-mv-into-repo"));
+    assert.ok(!detect("echo cp x y").matched.includes("cp-mv-into-repo"));
+  });
+
   it("matches tee", () => {
     assert.ok(detect("echo a | tee x.py").matched.includes("tee"));
   });
@@ -130,10 +178,34 @@ describe("detectBashWrites paths", () => {
     assert.deepEqual(r.paths, ["/p1/x.py", "/p2/x.py", "/abs/y.py"]);
   });
 
-  it("ignores text past 8000 chars", () => {
-    const cmd = " ".repeat(8000) + "sed -i s/a/b/ x.py";
-    const r = detect(cmd);
+  it("detects a write after 20000 chars of padding", () => {
+    const r = detect(" ".repeat(20000) + "sed -i s/a/b/ x.py");
+    assert.deepEqual(r.matched, ["sed-inplace"]);
+    assert.deepEqual(r.paths, ["/proj/x.py"]);
+  });
+
+  it("ignores a write after 100000 chars of padding", () => {
+    const r = detect(" ".repeat(100000) + "sed -i s/a/b/ x.py");
     assert.deepEqual(r, { matched: [], paths: [] });
+  });
+
+  it("scans a 100000-char line quickly with the default patterns", () => {
+    const inputs = [
+      " ".repeat(100000),
+      "a ".repeat(50000),
+      "cp" + " ".repeat(99998),
+      "mv" + "\t".repeat(99998),
+      "cp" + " ".repeat(99997) + ";",
+      (";cp" + " ".repeat(1000)).repeat(99),
+      "cp a" + " 2>&1".repeat(25000),
+      "cp a b" + " 2>/dev/null".repeat(10000),
+    ];
+    for (const cmd of inputs) {
+      const start = Date.now();
+      detect(cmd);
+      const elapsed = Date.now() - start;
+      assert.ok(elapsed < 50, `slow (${elapsed} ms) on ${JSON.stringify(cmd.slice(0, 30))}`);
+    }
   });
 
   it("gives no path for an extension outside the configured set", () => {
@@ -379,15 +451,29 @@ describe("post-bash end-to-end", () => {
 
   it("triggers checks for a new custom pattern name, and not without it", () => {
     withWorkspace((ws) => {
-      const config = baseConfig({ bash: { writePatterns: [{ name: "mv-write", match: "\\bmv\\s" }] } });
+      const config = baseConfig({ bash: { writePatterns: [{ name: "sponge-write", match: "\\bsponge\\s" }] } });
       const root = makeProject(ws, config, { "bad.py": "ok\n" }, true);
       dirty(root, "bad.py", "BAD\n");
-      const out = JSON.parse(postBash(root, { command: "mv tmp.txt bad.py" }).stdout);
+      const out = JSON.parse(postBash(root, { command: "sort in.txt | sponge bad.py" }).stdout);
       assert.equal(out.decision, "block");
 
       const plain = makeProject(path.join(ws, "plain"), baseConfig(), { "bad.py": "ok\n" }, true);
       dirty(plain, "bad.py", "BAD\n");
-      assert.equal(postBash(plain, { command: "mv tmp.txt bad.py" }).stdout, "");
+      assert.equal(postBash(plain, { command: "sort in.txt | sponge bad.py" }).stdout, "");
+    });
+  });
+
+  it("checks a dirty file restored by cp, and ignores a copy out to /tmp", () => {
+    withWorkspace((ws) => {
+      const root = makeProject(ws, baseConfig(), { "src/app.py": "ok\n" }, true);
+      dirty(root, "src/app.py", "BAD\n");
+      const restored = postBash(root, { command: "cp /tmp/restored.py src/app.py" });
+      const out = JSON.parse(restored.stdout);
+      assert.equal(out.decision, "block");
+      assert.match(out.reason, /src\/app\.py:/);
+
+      const copyOut = postBash(root, { command: "cp src/app.py /tmp/app.py.bak" });
+      assert.equal(copyOut.stdout, "");
     });
   });
 

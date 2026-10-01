@@ -19,7 +19,7 @@ This project is a Claude Code plugin. It uses PreToolUse and PostToolUse hooks t
 
 **Quality checks:** Edit/Write (PostToolUse) → load config → detect git state (skip if rebase/bisect/am) → run checks → block on errors.
 
-**Bash writes:** Bash (PostToolUse) → skip if background or `bash.enabled` is `false` → match command against `bash.writePatterns` (defaults merged by name) → extract candidate paths with checked extensions, resolving `cd` → drop paths outside the project → skip if git operation in progress → keep paths git reports dirty → run checks on up to `bash.maxFiles` files → block on errors.
+**Bash writes:** Bash (PostToolUse) → skip if background or `bash.enabled` is `false` → match command against `bash.writePatterns` (defaults merged by name) → extract candidate paths with checked extensions, resolving `cd` → drop paths outside the project → skip if git operation in progress → keep paths git reports dirty → run checks on up to `bash.maxFiles` files → block on errors. The hook reads command text only: a write whose target path is not in the command (a script run as `python3 probe.py`, loops, variables, `make`) is not detected. See README "Bash Writes" → Known limits.
 
 **Task review:** Agent completion → skip if background launch (tool returns at launch, nothing to review) → match `subagent_type` against rules → skip/message/review action. Background completions cannot trigger reviews (no parent-thread hook carries `subagent_type`).
 
