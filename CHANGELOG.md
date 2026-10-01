@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Bash Hook:** New PostToolUse `Bash` hook (`post-bash`) runs the configured checks on files a shell command wrote (`sed -i`, `tee`, redirects, and similar). Writes are detected by `bash.writePatterns`, candidate paths are resolved against `cd`, and a path is checked only when git reports it dirty. Background commands, paths outside the project, and git operations in progress are skipped. Configure with the new optional `bash` section (`enabled`, `maxFiles`, `writePatterns`), validated by `validate`.
+- **CLI:** `scan-bash` subcommand replays recorded Bash commands from Claude Code transcripts through the detector and prints a JSON report of pattern hits, timing, and missed writes. Accepts `--transcripts <dir>` and `--patterns <file>`.
+- **Agents:** `configure-bash-patterns` agent tunes `bash.writePatterns` by scoring candidate patterns with `scan-bash` and saving the ones that catch more writes without matching read-only commands.
+
+### Changed
+
+- **Bash Hook:** The Bash write hook is on by default, so a shell command that modifies a checked file now triggers checks and can block. Opt out per project with `{"bash": {"enabled": false}}` in `.claude/checkmate.json`.
+
 ## [2.4.0] - 2026-07-14
 
 ### Fixed

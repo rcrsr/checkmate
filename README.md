@@ -15,6 +15,7 @@ Automated code quality enforcement for Claude Code. Runs your linters, formatter
 - [Task Reviewers](#task-reviewers)
 - [Project Boundaries](#project-boundaries)
 - [Git Operations](#git-operations)
+- [Bash Writes](#bash-writes)
 - [Skills](#skills)
 - [Validation](#validation)
 
@@ -370,6 +371,41 @@ Override defaults (`true` = enabled, `false` = disabled):
   "environments": [...]
 }
 ```
+
+## Bash Writes
+
+Shell commands can write files too (`sed -i`, `tee`, `> file.py`). The PostToolUse `Bash` hook detects these writes and runs the configured checks on the files they changed. It is on by default.
+
+Detection is heuristic. A command is matched against `writePatterns`, candidate paths with a checked extension are extracted (honoring `cd`), and a path is checked only if git reports it dirty. Paths outside the project, background commands, and git operations in progress (per the `git` settings) are skipped. A failing check blocks, same as an edit.
+
+Built-in patterns: `sed-inplace`, `perl-inplace`, `python-write`, `node-write`, `redirect`, `tee`.
+
+```json
+{
+  "bash": {
+    "enabled": true,
+    "maxFiles": 10,
+    "writePatterns": [
+      { "name": "sponge", "match": "\\bsponge\\s" }
+    ]
+  },
+  "environments": [...]
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Set `false` to turn the hook off |
+| `maxFiles` | positive integer | `10` | Maximum files checked per command; the rest are reported as skipped |
+| `writePatterns` | array | built-ins | `{ "name", "match" }` entries; `match` is a regex string. A `name` equal to a built-in replaces it; a new `name` adds a pattern. Names must be unique; nested quantifiers are rejected |
+
+Opt out:
+
+```json
+{ "bash": { "enabled": false } }
+```
+
+To tune patterns against your own history, run `node scripts/checkmate.mjs scan-bash [--transcripts <dir>] [--patterns <file>]`. It replays recorded Bash commands from Claude Code transcripts and prints a JSON report (hits per pattern, timing, missed writes). The `configure-bash-patterns` agent runs this loop for you and saves the kept patterns to `bash.writePatterns`.
 
 ## Skills
 

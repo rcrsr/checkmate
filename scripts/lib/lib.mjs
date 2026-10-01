@@ -4,6 +4,7 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 /**
@@ -310,4 +311,119 @@ export function matchesExcludePattern(relativePath, pattern) {
     .replace(/\//g, "\\/");
   const regex = new RegExp(`^${regexPattern}$`);
   return regex.test(normalizedRelativePath);
+}
+
+// =============================================================================
+// Bash Write Detection (shared by post-bash.mjs and scan-bash)
+// =============================================================================
+
+const BASH_SCAN_LIMIT = 8000;
+
+/**
+ * Default patterns that flag a Bash command as a likely file write.
+ * Order is significant: config entries override by name in place.
+ */
+export const DEFAULT_WRITE_PATTERNS = [
+  { name: "sed-inplace", match: "\\bsed\\s+(?:-[a-zA-Z]*i|--in-place)" },
+  { name: "perl-inplace", match: "\\bperl\\s+-[a-zA-Z]*i" },
+  { name: "python-write", match: "\\.write_text\\(|\\bopen\\([^)\\n]{0,200},\\s*['\"][wa]" },
+  { name: "node-write", match: "writeFileSync|appendFileSync" },
+  { name: "redirect", match: "(?:^|[^0-9&><=-])>{1,2}\\s*['\"]?[^\\s&|;<>'\"]+\\.[A-Za-z0-9]+\\b" },
+  { name: "tee", match: "\\btee\\s" },
+];
+
+/**
+ * Merge config write patterns over the defaults, by name, and compile them.
+ * A config entry replaces the default of the same name in place; a new name is
+ * appended. Entries whose regex does not compile are dropped. Never throws.
+ * @param {object|null|undefined} bashConfig - Config `bash` section
+ * @returns {{ name: string, match: string, re: RegExp }[]}
+ */
+export function resolveWritePatterns(bashConfig) {
+  const merged = DEFAULT_WRITE_PATTERNS.map((p) => ({ name: p.name, match: p.match }));
+  const custom = bashConfig && Array.isArray(bashConfig.writePatterns) ? bashConfig.writePatterns : [];
+
+  for (const entry of custom) {
+    if (!entry || typeof entry.name !== "string" || typeof entry.match !== "string") continue;
+    const index = merged.findIndex((p) => p.name === entry.name);
+    if (index >= 0) {
+      merged[index] = { name: entry.name, match: entry.match };
+    } else {
+      merged.push({ name: entry.name, match: entry.match });
+    }
+  }
+
+  const resolved = [];
+  for (const p of merged) {
+    try {
+      resolved.push({ name: p.name, match: p.match, re: new RegExp(p.match) });
+    } catch {
+      // drop patterns that do not compile
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Collect every file extension that any environment has checks for.
+ * @param {object|null|undefined} config - Parsed checkmate.json
+ * @returns {string[]} Extensions without leading dot, de-duplicated
+ */
+export function getCheckedExtensions(config) {
+  const found = new Set();
+  const environments = config && config.environments ? Object.values(config.environments) : [];
+
+  for (const env of environments) {
+    if (!env || !env.checks || typeof env.checks !== "object") continue;
+    for (const key of Object.keys(env.checks)) {
+      for (const part of key.split(",")) {
+        const ext = part.trim().replace(/^\./, "");
+        if (ext) found.add(ext);
+      }
+    }
+  }
+  return [...found];
+}
+
+/**
+ * Detect file writes in a Bash command. Pure: no fs access, no spawning.
+ * Each candidate path resolves against the last `cd` that precedes it.
+ * @param {string} command
+ * @param {{ patterns: { name: string, re: RegExp }[], extensions: string[], baseDirs: string[] }} options
+ * @returns {{ matched: string[], paths: string[] }}
+ */
+export function detectBashWrites(command, { patterns, extensions, baseDirs }) {
+  const result = { matched: [], paths: [] };
+  if (typeof command !== "string" || extensions.length === 0) return result;
+
+  const cmd = command.slice(0, BASH_SCAN_LIMIT);
+  for (const p of patterns) {
+    if (p.re.test(cmd)) result.matched.push(p.name);
+  }
+  if (result.matched.length === 0) return result;
+
+  const ext = extensions.map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const pathRe = new RegExp(
+    `(?:^|['"\\s=(])((?:[\\w.$~@\\/-]+\\/)?[\\w.$@-]+\\.(?:${ext}))(?=['"\\s;)|&]|$)`,
+    "gm",
+  );
+  const cds = [...cmd.matchAll(/(?:^|[;&|\n(]\s*)cd\s+['"]?([^\s;&'"()]+)/g)];
+
+  const seen = new Set();
+  for (const m of cmd.matchAll(pathRe)) {
+    for (const baseDir of baseDirs) {
+      let base = baseDir;
+      for (const c of cds) {
+        if (c.index > m.index) break;
+        if (c[1] === "-") continue;
+        base = path.resolve(base, c[1].replace(/^~/, os.homedir()));
+      }
+      const abs = path.isAbsolute(m[1]) ? m[1] : path.resolve(base, m[1]);
+      if (!seen.has(abs)) {
+        seen.add(abs);
+        result.paths.push(abs);
+      }
+    }
+  }
+  return result;
 }

@@ -568,4 +568,5 @@ Inform the user that the checkmate hook runs automatically on file edits. Sugges
 - The `parser` field determines how output is parsed into diagnostics
 - Use `generic` parser for tools without a specific parser
 - `maxDiagnostics` limits output per check (default: 5)
+- Checks also run on files that Bash commands write (`sed -i`, `tee`, redirects), on by default. To tune which commands count as writes, use the `configure-bash-patterns` agent; to opt out, set `{"bash": {"enabled": false}}`
 - Task reviewers are not auto-discovered; add `tasks` array manually to trigger code review agents after Task completions (see README)

@@ -177,7 +177,7 @@ function detectGitOperation(projectRoot) {
 /**
  * Check if quality checks should be skipped for the current git operation.
  */
-function shouldSkipForGitOperation(config, projectRoot) {
+export function shouldSkipForGitOperation(config, projectRoot) {
   const operation = detectGitOperation(projectRoot);
   if (!operation) return { skip: false };
 
@@ -645,7 +645,7 @@ function formatDiagnostic(d) {
   return `  ${icon} ${location} ${d.message}${rule} ${source}`;
 }
 
-function formatDiagnosticsBlock(diags, fileName) {
+export function formatDiagnosticsBlock(diags, fileName) {
   const lines = diags.map((d) => formatDiagnostic(d));
   return `<new-diagnostics>\n${fileName}:\n${lines.join("\n")}\n</new-diagnostics>`;
 }
@@ -701,26 +701,15 @@ function validateConfigFile(configPath) {
 // Main
 // =============================================================================
 
-export async function run() {
-  const input = await readStdinJson();
-  let filePath = input.tool_input?.file_path;
-
-  // No file path provided - skip silently
-  if (!filePath) {
-    pass("No file path provided");
-  }
-
-  // File doesn't exist - skip silently
-  if (!fs.existsSync(filePath)) {
-    pass(`File not found: ${filePath}`);
-  }
-
-  // Load config
-  const { config: sessionConfig, projectRoot } = loadConfig();
-  if (!projectRoot) {
-    pass("CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment");
-  }
-
+/**
+ * Run every applicable check for one file. Never exits the process: the
+ * caller decides how to report the outcome.
+ * @param {string} filePath - Absolute path of the file to check
+ * @param {string} projectRoot - Session project root
+ * @param {object|null} sessionConfig - Config loaded for the session root
+ * @returns {{filePath: string, fileName: string, results: object[], diagnostics: object[], commands: string[], hasFailures: boolean, skippedReason: string|null, statusLine: string}}
+ */
+export function checkFile(filePath, projectRoot, sessionConfig) {
   // A project's checks only ever apply to that project's own files. Files
   // outside the root, in a linked worktree, or in a nested repo/submodule
   // each need their own config selection - see resolveFileRoot in lib.mjs.
@@ -730,9 +719,21 @@ export async function run() {
   // path.relative(root, filePath) in 2 different coordinate spaces.
   const { root, kind, filePath: resolvedFilePath } = resolveFileRoot(filePath, projectRoot);
   filePath = resolvedFilePath;
+  const fileName = path.basename(filePath);
+
+  const skippedResult = (skippedReason) => ({
+    filePath,
+    fileName,
+    results: [],
+    diagnostics: [],
+    commands: [],
+    hasFailures: false,
+    skippedReason,
+    statusLine: "",
+  });
 
   if (kind === "outside") {
-    pass("skipped (outside project)");
+    return skippedResult("skipped (outside project)");
   }
 
   const isConfigFile = filePath.endsWith(".claude/checkmate.json");
@@ -760,7 +761,7 @@ export async function run() {
 
   // No config and not editing the config file - nothing to do
   if (!config && !isConfigFile) {
-    pass(
+    return skippedResult(
       kind === "nested-repo"
         ? "skipped (nested repo has no checkmate.json)"
         : "disabled (run /checkmate:init to configure)"
@@ -770,7 +771,7 @@ export async function run() {
   // Skip during certain git operations
   const gitCheck = shouldSkipForGitOperation(config, root);
   if (gitCheck.skip) {
-    pass(`skipped (git ${gitCheck.operation} in progress)`);
+    return skippedResult(`skipped (git ${gitCheck.operation} in progress)`);
   }
 
   const diagnostics = [];
@@ -820,7 +821,6 @@ export async function run() {
     }
   }
 
-  const fileName = path.basename(filePath);
   const statusLine = results
     .map((r) => {
       if (r.skipped) return `\u2298 ${r.name}`;
@@ -828,21 +828,51 @@ export async function run() {
     })
     .join(" ");
 
+  // No checks ran and nothing failed: report why
+  let skippedReason = null;
+  if (!hasFailures && checkResult.checks.length === 0 && !isConfigFile) {
+    skippedReason = checkResult.reason === "path-excluded" ? "excluded" : "skipped";
+  }
+
+  return { filePath, fileName, results, diagnostics, commands, hasFailures, skippedReason, statusLine };
+}
+
+export async function run() {
+  const input = await readStdinJson();
+  const filePath = input.tool_input?.file_path;
+
+  // No file path provided - skip silently
+  if (!filePath) {
+    pass("No file path provided");
+  }
+
+  // File doesn't exist - skip silently
+  if (!fs.existsSync(filePath)) {
+    pass(`File not found: ${filePath}`);
+  }
+
+  // Load config
+  const { config: sessionConfig, projectRoot } = loadConfig();
+  if (!projectRoot) {
+    pass("CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment");
+  }
+
+  const outcome = checkFile(filePath, projectRoot, sessionConfig);
+
+  if (outcome.skippedReason) {
+    pass(outcome.skippedReason);
+  }
+
   // Any diagnostics found - block
-  if (hasFailures) {
-    let reason = formatDiagnosticsBlock(diagnostics, fileName);
-    if (commands.length > 0) {
-      reason += "\n" + formatCommandsBlock(commands);
+  if (outcome.hasFailures) {
+    let reason = formatDiagnosticsBlock(outcome.diagnostics, outcome.fileName);
+    if (outcome.commands.length > 0) {
+      reason += "\n" + formatCommandsBlock(outcome.commands);
     }
-    block(reason, statusLine);
+    block(reason, outcome.statusLine);
   }
 
-  // Determine if any checks ran and provide appropriate message
-  const checksRan = checkResult.checks.length > 0;
-
-  if (!checksRan && !isConfigFile) {
-    pass(checkResult.reason === "path-excluded" ? "excluded" : "skipped");
-  }
+  const { results, statusLine } = outcome;
 
   // All clean - approve, but surface why any check was skipped
   const skipMessages = results.filter((r) => r.skipped).map((r) => r.skipMessage).filter(Boolean);

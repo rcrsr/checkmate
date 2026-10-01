@@ -6,8 +6,10 @@
  * Usage:
  *   node checkmate.mjs pre-tool    # Agent enforcement (stdin: hook JSON)
  *   node checkmate.mjs post-tool   # Quality checks (stdin: hook JSON)
+ *   node checkmate.mjs post-bash   # Checks for files written by Bash (stdin: hook JSON)
  *   node checkmate.mjs post-task   # Task review (stdin: hook JSON)
  *   node checkmate.mjs validate    # Config validation (argv: file path)
+ *   node checkmate.mjs scan-bash   # Replay transcript Bash commands (argv: --transcripts, --patterns)
  */
 
 const subcommand = process.argv[2];
@@ -15,14 +17,16 @@ const subcommand = process.argv[2];
 const handlers = {
   "pre-tool": () => import("./lib/pre-tool.mjs"),
   "post-tool": () => import("./lib/post-tool.mjs"),
+  "post-bash": () => import("./lib/post-bash.mjs"),
   "post-task": () => import("./lib/post-task.mjs"),
   validate: () => import("./lib/validate.mjs"),
+  "scan-bash": () => import("./lib/scan-bash.mjs"),
 };
 
 const loader = handlers[subcommand];
 
 if (!loader) {
-  console.error(`Usage: node checkmate.mjs <pre-tool|post-tool|post-task|validate>`);
+  console.error(`Usage: node checkmate.mjs <pre-tool|post-tool|post-bash|post-task|validate|scan-bash>`);
   process.exit(1);
 }
 

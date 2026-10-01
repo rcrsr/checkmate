@@ -7,6 +7,8 @@ This project is a Claude Code plugin. It uses PreToolUse and PostToolUse hooks t
 | `scripts/checkmate.mjs` | Entry point, routes subcommands |
 | `scripts/lib/pre-tool.mjs` | Agent delegation: block main thread, require subagent |
 | `scripts/lib/post-tool.mjs` | Quality hook: git detection, check execution, parsers |
+| `scripts/lib/post-bash.mjs` | Bash hook: run checks on files a shell command wrote |
+| `scripts/lib/scan-bash.mjs` | `scan-bash` CLI: replay transcript Bash commands through the write detector |
 | `scripts/lib/post-task.mjs` | Task hook: subagent matching, review triggers |
 | `scripts/lib/validate.mjs` | Config schema validation |
 | `scripts/lib/lib.mjs` | Shared utilities: config loading, JSON output, `pass()`/`block()` |
@@ -16,6 +18,8 @@ This project is a Claude Code plugin. It uses PreToolUse and PostToolUse hooks t
 **Agent delegation:** Edit/Write (PreToolUse) → load config → match extension to `agents` → if main thread and no git op → deny with agent name.
 
 **Quality checks:** Edit/Write (PostToolUse) → load config → detect git state (skip if rebase/bisect/am) → run checks → block on errors.
+
+**Bash writes:** Bash (PostToolUse) → skip if background or `bash.enabled` is `false` → match command against `bash.writePatterns` (defaults merged by name) → extract candidate paths with checked extensions, resolving `cd` → drop paths outside the project → skip if git operation in progress → keep paths git reports dirty → run checks on up to `bash.maxFiles` files → block on errors.
 
 **Task review:** Agent completion → skip if background launch (tool returns at launch, nothing to review) → match `subagent_type` against rules → skip/message/review action. Background completions cannot trigger reviews (no parent-thread hook carries `subagent_type`).
 

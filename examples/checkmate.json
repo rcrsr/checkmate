@@ -1,4 +1,11 @@
 {
+  "bash": {
+    "enabled": true,
+    "maxFiles": 10,
+    "writePatterns": [
+      { "name": "sponge", "match": "\\bsponge\\s" }
+    ]
+  },
   "environments": [
     {
       "name": "root",
