@@ -455,6 +455,7 @@ The command contains no checked path, so step 3 finds nothing. The file is chang
 - Past `maxFiles`, the extra files are reported as skipped, not checked.
 - Background commands are skipped, since the hook fires before they finish.
 - A command that fails does not trigger the PostToolUse hook, so it is not checked.
+- `cp`/`mv` detection does not match when an argument contains parentheses (for example `cp "a (1).py" dir/`).
 - Detection is heuristic. A file that was already modified and is only mentioned in a matching command gets checked, which can surface an existing failure.
 
 **Mitigations.** None of these closes the indirect-script gap on its own:

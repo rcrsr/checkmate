@@ -326,7 +326,7 @@ const SCRATCH_TARGETS = "/tmp/|/dev/|/proc/|\\$TMPDIR/|\\$\\{TMPDIR\\}/|~/\\.cla
 
 // Up to 3 trailing redirections (`2>&1`, `>&2`, `2>/dev/null`, `&>file`, `> file`)
 // that may follow a cp/mv destination without being the destination itself.
-const TRAILING_REDIRECTS = "(?:[ \\t]+[0-9&]?>{1,2}&?[ \\t]*[^\\s;&|<>)]*)?".repeat(3);
+const TRAILING_REDIRECTS = "(?:[ \\t]+[0-9&]?>{1,2}&?[ \\t]*[^\\s;&|<>)(]*)?".repeat(3);
 
 /**
  * Default patterns that flag a Bash command as a likely file write.
@@ -348,9 +348,12 @@ export const DEFAULT_WRITE_PATTERNS = [
   // so `cp -t dest/ a.py` is judged by `a.py` and `cp a b > /tmp/log` is not
   // matched; trailing redirections (up to 3) are skipped when picking the
   // destination. The git dirty check drops any resulting false positive.
+  // A span never crosses another command-word start (`;&|(` or a newline),
+  // which keeps matching linear. An argument containing `(` or `)` (such as
+  // `cp "a (1).py" dir/`) is not matched (accepted: a miss, not a false positive).
   {
     name: "cp-mv-into-repo",
-    match: `(?:^|[;&|(\\n])[ \\t]*(?:cp|mv)[ \\t]+(?![ \\t])[^;&|>\\n)]{0,300}[ \\t](?!['"]?(?:${SCRATCH_TARGETS}))[^\\s;&|>)]+(?=${TRAILING_REDIRECTS}[ \\t]*(?:[;&|\\n)]|$))`,
+    match: `(?:^|[;&|(\\n])[ \\t]*(?:cp|mv)[ \\t]+(?![ \\t])[^;&|>\\n)(]{0,300}[ \\t](?!['"]?(?:${SCRATCH_TARGETS}))[^\\s;&|>)(]+(?=${TRAILING_REDIRECTS}[ \\t]*(?:[;&|\\n)]|$))`,
   },
 ];
 

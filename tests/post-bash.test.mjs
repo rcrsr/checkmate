@@ -137,6 +137,17 @@ describe("detectBashWrites patterns", () => {
     assert.ok(detect("cp /tmp/x.py src/a.py 2>&1").matched.includes("cp-mv-into-repo"));
   });
 
+  it("matches cp with a 60-90 character source path", () => {
+    const cmd = "cp apps/pkg/src/some/deep/dir/file_name.py apps/pkg/src/other/dir/file_name.py";
+    assert.ok(detect(cmd).matched.includes("cp-mv-into-repo"));
+  });
+
+  it("does not match cp with parentheses in an argument but still matches subshell cp", () => {
+    assert.ok(!detect('cp "a (1).py" src/').matched.includes("cp-mv-into-repo"));
+    assert.ok(detect("(cp a b)").matched.includes("cp-mv-into-repo"));
+    assert.ok(detect("cd x && (cp a b)").matched.includes("cp-mv-into-repo"));
+  });
+
   it("anchors cp and mv to the command word", () => {
     assert.ok(!detect("git mv a b").matched.includes("cp-mv-into-repo"));
     assert.ok(!detect("echo cp x y").matched.includes("cp-mv-into-repo"));
@@ -199,12 +210,15 @@ describe("detectBashWrites paths", () => {
       (";cp" + " ".repeat(1000)).repeat(99),
       "cp a" + " 2>&1".repeat(25000),
       "cp a b" + " 2>/dev/null".repeat(10000),
+      "(cp ".repeat(25000),
+      "cp a b ".repeat(14000),
+      "(mv ".repeat(25000),
     ];
     for (const cmd of inputs) {
       const start = Date.now();
       detect(cmd);
       const elapsed = Date.now() - start;
-      assert.ok(elapsed < 50, `slow (${elapsed} ms) on ${JSON.stringify(cmd.slice(0, 30))}`);
+      assert.ok(elapsed < 25,`slow (${elapsed} ms) on ${JSON.stringify(cmd.slice(0, 30))}`);
     }
   });
 
