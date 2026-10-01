@@ -13,6 +13,7 @@
  */
 
 import * as fs from "node:fs";
+import { validateBash } from "./lib.mjs";
 
 // =============================================================================
 // Schema Definitions
@@ -342,6 +343,11 @@ export function validateConfig(config) {
   // Optional: git (object)
   if (config.git !== undefined) {
     errors.push(...validateSkipDuringGitOperations(config.git));
+  }
+
+  // Optional: bash (object)
+  if (config.bash !== undefined) {
+    errors.push(...validateBash(config.bash));
   }
 
   return { errors, warnings };

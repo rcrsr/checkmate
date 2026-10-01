@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveCommand, formatCommandsBlock } from "../scripts/lib/post-tool.mjs";
-import { resolveFileRoot, fileMatchesPaths, matchesExcludePattern } from "../scripts/lib/lib.mjs";
+import { resolveCommand, checkFile } from "../scripts/lib/post-tool.mjs";
+import { resolveFileRoot, fileMatchesPaths, matchesExcludePattern, formatCommandsBlock } from "../scripts/lib/lib.mjs";
 
 const scriptPath = fileURLToPath(new URL("../scripts/checkmate.mjs", import.meta.url));
 
@@ -720,6 +720,202 @@ test("post-tool classifies a relocated-gitdir worktree via commondir, even witho
     const output = JSON.parse(result.stdout);
     assert.equal(output.decision, "block");
     assert.match(output.reason, /cwdcheck/);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// run() message characterisation: exact systemMessage of each pass/block path
+// -----------------------------------------------------------------------------
+
+function runPostTool(input, projectDir) {
+  const env = { ...process.env };
+  delete env.CLAUDE_PROJECT_DIR;
+  if (projectDir !== undefined) env.CLAUDE_PROJECT_DIR = projectDir;
+  const result = spawnSync("node", [scriptPath, "post-tool"], {
+    input: JSON.stringify(input),
+    env,
+    encoding: "utf-8",
+  });
+  return JSON.parse(result.stdout);
+}
+
+function makeProject(config) {
+  const projectRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "checkmate-test-")));
+  mkdirSync(path.join(projectRoot, ".claude"), { recursive: true });
+  if (config) {
+    writeFileSync(path.join(projectRoot, ".claude", "checkmate.json"), JSON.stringify(config));
+  }
+  const filePath = path.join(projectRoot, "sample.txt");
+  writeFileSync(filePath, "hello\n");
+  return { projectRoot, filePath };
+}
+
+function txtConfig(checks, extra) {
+  return { environments: [{ name: "root", paths: ["."], checks, ...extra }] };
+}
+
+test("post-tool passes with 'No file path provided' when tool_input has no file_path", () => {
+  const output = runPostTool({ tool_input: {} }, undefined);
+  assert.deepEqual(output, { systemMessage: "[checkmate] No file path provided" });
+});
+
+test("post-tool passes with 'File not found' naming the missing path", () => {
+  const missing = path.join(tmpdir(), "checkmate-does-not-exist.txt");
+  const output = runPostTool({ tool_input: { file_path: missing } }, undefined);
+  assert.deepEqual(output, { systemMessage: `[checkmate] File not found: ${missing}` });
+});
+
+test("post-tool passes with the environment hint when CLAUDE_PROJECT_DIR is not set", () => {
+  const { projectRoot, filePath } = makeProject(null);
+  try {
+    const output = runPostTool({ tool_input: { file_path: filePath } }, undefined);
+    assert.deepEqual(output, {
+      systemMessage: "[checkmate] CLAUDE_PROJECT_DIR not set - hook requires Claude Code environment",
+    });
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("post-tool passes with 'skipped (nested repo has no checkmate.json)' for a nested repo without config", () => {
+  const { projectRoot } = makeProject(txtConfig({ ".txt": [] }));
+  try {
+    const nested = path.join(projectRoot, "nested");
+    mkdirSync(path.join(nested, ".git"), { recursive: true });
+    const filePath = path.join(nested, "sample.txt");
+    writeFileSync(filePath, "hello\n");
+    const output = runPostTool({ tool_input: { file_path: filePath } }, projectRoot);
+    assert.deepEqual(output, {
+      systemMessage: "[checkmate] skipped (nested repo has no checkmate.json)",
+    });
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("post-tool passes with 'disabled (run /checkmate:init to configure)' when no config exists", () => {
+  const { projectRoot, filePath } = makeProject(null);
+  try {
+    const output = runPostTool({ tool_input: { file_path: filePath } }, projectRoot);
+    assert.deepEqual(output, {
+      systemMessage: "[checkmate] disabled (run /checkmate:init to configure)",
+    });
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("post-tool passes with 'skipped (git rebase in progress)' when a rebase-merge directory exists", () => {
+  const { projectRoot, filePath } = makeProject(txtConfig({ ".txt": [] }));
+  try {
+    mkdirSync(path.join(projectRoot, ".git", "rebase-merge"), { recursive: true });
+    const output = runPostTool({ tool_input: { file_path: filePath } }, projectRoot);
+    assert.deepEqual(output, {
+      systemMessage: "[checkmate] skipped (git rebase in progress)",
+    });
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("post-tool passes with 'excluded' when an exclude pattern matches a file that has checks", () => {
+  const { projectRoot, filePath } = makeProject(
+    txtConfig(
+      { ".txt": [{ name: "okcheck", command: "node", args: ["-e", "process.exit(0)"], parser: "prettier" }] },
+      { exclude: ["sample.txt"] }
+    )
+  );
+  try {
+    const output = runPostTool({ tool_input: { file_path: filePath } }, projectRoot);
+    assert.deepEqual(output, { systemMessage: "[checkmate] excluded" });
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("post-tool passes with 'skipped' when no check is configured for the file extension", () => {
+  const { projectRoot, filePath } = makeProject(
+    txtConfig({ ".md": [{ name: "okcheck", command: "node", args: ["-e", "process.exit(0)"], parser: "prettier" }] })
+  );
+  try {
+    const output = runPostTool({ tool_input: { file_path: filePath } }, projectRoot);
+    assert.deepEqual(output, { systemMessage: "[checkmate] skipped" });
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("post-tool passes with the status line of passing checks in declaration order", () => {
+  const { projectRoot, filePath } = makeProject(
+    txtConfig({
+      ".txt": [
+        { name: "okone", command: "node", args: ["-e", "process.exit(0)"], parser: "prettier" },
+        { name: "oktwo", command: "node", args: ["-e", "process.exit(0)"], parser: "prettier" },
+      ],
+    })
+  );
+  try {
+    const output = runPostTool({ tool_input: { file_path: filePath } }, projectRoot);
+    assert.deepEqual(output, { systemMessage: "[checkmate] ✅ okone ✅ oktwo" });
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("post-tool appends ' | <skip message>' to the status line when a check is skipped", () => {
+  const { projectRoot, filePath } = makeProject(
+    txtConfig({
+      ".txt": [
+        { name: "okone", command: "node", args: ["-e", "process.exit(0)"], parser: "prettier" },
+        { name: "skipper", command: "checkmate-no-such-command-xyz", args: ["$FILE"], parser: "prettier" },
+      ],
+    })
+  );
+  try {
+    const output = runPostTool({ tool_input: { file_path: filePath } }, projectRoot);
+    assert.deepEqual(output, {
+      systemMessage:
+        "[checkmate] ✅ okone ⊘ skipper | checkmate-no-such-command-xyz not found - skipping skipper",
+    });
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("post-tool blocks with a status line marking failed and passed checks", () => {
+  const { projectRoot, filePath } = makeProject(
+    txtConfig({
+      ".txt": [
+        { name: "okone", command: "node", args: ["-e", "process.exit(0)"], parser: "prettier" },
+        { name: "failone", command: "node", args: ["-e", "console.log('bad'); process.exit(1)"], parser: "prettier" },
+      ],
+    })
+  );
+  try {
+    const output = runPostTool({ tool_input: { file_path: filePath } }, projectRoot);
+    assert.equal(output.decision, "block");
+    assert.equal(output.systemMessage, "[checkmate] ✅ okone ❌ failone");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("checkFile reports a failing check without exiting the process", () => {
+  const { projectRoot, filePath } = makeProject(
+    txtConfig({
+      ".txt": [
+        { name: "failone", command: "node", args: ["-e", "console.log('bad'); process.exit(1)"], parser: "prettier" },
+      ],
+    })
+  );
+  try {
+    const sessionConfig = JSON.parse(readFileSync(path.join(projectRoot, ".claude", "checkmate.json"), "utf-8"));
+    const outcome = checkFile(filePath, projectRoot, sessionConfig);
+    assert.equal(outcome.hasFailures, true);
+    assert.equal(outcome.commands.length, 1);
+    assert.equal(outcome.skippedReason, null);
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
   }

@@ -8,7 +8,6 @@
  * Exit codes: 0 = continue (pass or deny emitted via stdout)
  */
 
-import { existsSync, statSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import {
   loadConfig,
@@ -18,6 +17,7 @@ import {
   resolveFileRoot,
   fileMatchesPaths,
   matchesExcludePattern,
+  detectGitOperation,
 } from "./lib.mjs";
 
 // =============================================================================
@@ -65,48 +65,6 @@ function getAgentForFile(config, filePath, projectRoot) {
     const agent = getAgentForExtension(env.agents, ext);
     if (agent) return agent;
   }
-
-  return null;
-}
-
-// =============================================================================
-// Git State Detection (reused from post-tool.mjs)
-// =============================================================================
-
-/**
- * Resolve the actual .git directory path.
- */
-function getGitDir(projectRoot) {
-  const gitPath = path.join(projectRoot, ".git");
-
-  if (!existsSync(gitPath)) return null;
-
-  try {
-    const stat = statSync(gitPath);
-    if (stat.isDirectory()) return gitPath;
-
-    const content = readFileSync(gitPath, "utf-8");
-    const match = content.match(/^gitdir:\s*(.+)$/m);
-    return match ? match[1].trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Detect if repository is in a git operation state.
- */
-function detectGitOperation(projectRoot) {
-  const gitDir = getGitDir(projectRoot);
-  if (!gitDir) return null;
-
-  if (existsSync(path.join(gitDir, "rebase-merge"))) return "rebase";
-  if (existsSync(path.join(gitDir, "rebase-apply", "applying"))) return "am";
-  if (existsSync(path.join(gitDir, "rebase-apply"))) return "rebase";
-  if (existsSync(path.join(gitDir, "BISECT_LOG"))) return "bisect";
-  if (existsSync(path.join(gitDir, "CHERRY_PICK_HEAD"))) return "cherryPick";
-  if (existsSync(path.join(gitDir, "REVERT_HEAD"))) return "revert";
-  if (existsSync(path.join(gitDir, "MERGE_HEAD"))) return "merge";
 
   return null;
 }
