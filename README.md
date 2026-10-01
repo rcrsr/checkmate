@@ -380,12 +380,12 @@ Shell commands can write files too (`sed -i`, `tee`, `> file.py`). Those writes 
 
 Detection reads the command text only. It never runs the command again and never inspects what a script does.
 
-1. **Skip** if the call is a background command, `bash.enabled` is `false`, or no `checkmate.json` exists.
+1. **Skip** if the call is a background command, `bash.enabled` is `false`, or the project root cannot be found. With no `checkmate.json`, no checks are configured, so only a write to `.claude/checkmate.json` itself runs (its schema self-check).
 2. **Match** the command against `writePatterns`. No match, no further work, and the hook prints nothing.
-3. **Extract** candidate paths: literal paths in the command that end in a checked extension (any extension with a configured check). Each path resolves against the last `cd` before it.
-4. **Filter** paths outside the project, and skip everything while a git operation is in progress (per the `git` settings).
-5. **Confirm** with `git status`: a path is checked only if git reports it modified or untracked. Without git, the file only needs to exist.
-6. **Check** up to `maxFiles` files with the same per-file checks as an edit.
+3. **Extract** candidate paths: literal paths in the command, bare or quoted (quoted paths may contain spaces). A path counts when its extension has a check in the config that owns the file (the session config, a linked worktree's own config, or a nested repo's own config), or when it is `.claude/checkmate.json`. Each path resolves against the last `cd` before it; `cd -` returns to the previous directory. A `cd` whose argument is dynamic (`$VAR`, backticks, globs) is skipped, so later paths resolve against the directory before it. Relative paths start from the hook's `cwd`, falling back to the project root.
+4. **Filter** paths outside the project, and skip everything while a git operation is in progress (per the `git` settings; the hook then prints `skipped (git <operation> in progress)`).
+5. **Confirm** with `git --no-optional-locks -c core.fsmonitor= status --porcelain -z --untracked-files=all -- <paths>`: a path is checked only if git reports it modified or untracked (deleted files are dropped). Without git, the file only needs to exist.
+6. **Check** up to `maxFiles` files with the same per-file checks as an edit, within a 2 s budget. Once 2000 ms have elapsed, the remaining files are skipped and the hook reports `N file(s) skipped (time budget): ...`. Files over `maxFiles` are reported as `N file(s) over maxFiles skipped: ...`.
 
 Because step 3 needs a literal path in the command, the hook sees a write only when the command names the file it writes.
 
@@ -418,7 +418,7 @@ Built-in patterns: `sed-inplace`, `perl-inplace`, `python-write`, `node-write`, 
 |-------|------|---------|-------------|
 | `enabled` | boolean | `true` | Set `false` to turn the hook off |
 | `maxFiles` | positive integer | `10` | Maximum files checked per command; the rest are reported as skipped |
-| `writePatterns` | array | built-ins | `{ "name", "match" }` entries; `match` is a regex string. A `name` equal to a built-in replaces it; a new `name` adds a pattern. Names must be unique; nested quantifiers are rejected |
+| `writePatterns` | array | built-ins | `{ "name", "match" }` entries; `match` is a regex string. A `name` equal to a built-in replaces it; a new `name` adds a pattern. Names must be unique. Patterns with nested quantifiers or repeated alternations are rejected (a best-effort guard against catastrophic backtracking) |
 
 Opt out:
 
@@ -452,6 +452,12 @@ The command contains no checked path, so step 3 finds nothing. The file is chang
 **By design:**
 
 - Only the first 100,000 characters of a command are scanned.
+- Gitignored files are never checked: `git status` omits them.
+- The `writePatterns` backtracking guard is best-effort. It misses adjacent overlapping repeats (`\s*\s*`, `.*.*`), backreferences and large bounded repeats.
+- `tee` is judged by its first target only.
+- At most 500 distinct path tokens are collected per command, and only the first 3 x `maxFiles` eligible candidates are kept; the rest are ignored.
+- Undetected write APIs: `createWriteStream`, `shutil.*`, `pathlib` writes through variables, and `os.rename`.
+- A `cd` into a dynamic directory resolves later paths against the prior directory.
 - Past `maxFiles`, the extra files are reported as skipped, not checked.
 - Background commands are skipped, since the hook fires before they finish.
 - A command that fails does not trigger the PostToolUse hook, so it is not checked.

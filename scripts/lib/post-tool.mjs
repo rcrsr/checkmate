@@ -13,7 +13,7 @@
  */
 
 import { execSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -24,6 +24,11 @@ import {
   resolveFileRoot,
   fileMatchesPaths,
   matchesExcludePattern,
+  resolveOwningConfig,
+  shouldSkipForGitOperation,
+  formatDiagnosticsBlock,
+  formatCommandsBlock,
+  formatOutcomeStatus,
 } from "./lib.mjs";
 import { validateConfig } from "./validate.mjs";
 
@@ -114,90 +119,22 @@ function getChecksForFile(config, filePath, projectRoot) {
 }
 
 // =============================================================================
-// Git State Detection
-// =============================================================================
-
-const DEFAULT_GIT_CHECKS = {
-  rebase: false,     // Disabled: formatting after commit N conflicts with patch N+1
-  am: false,         // Disabled: sequential patch application (same issue as rebase)
-  bisect: false,     // Disabled: any change corrupts historical state being tested
-  merge: true,       // Enabled: single operation, safe to format
-  cherryPick: true,  // Enabled: usually single commit; user can override for multi-pick
-  revert: true,      // Enabled: single operation, safe to format
-};
-
-/**
- * Resolve the actual .git directory path.
- * Handles worktrees where .git is a file pointing to the real git dir.
- */
-function getGitDir(projectRoot) {
-  const gitPath = path.join(projectRoot, ".git");
-
-  if (!existsSync(gitPath)) return null;
-
-  try {
-    const stat = statSync(gitPath);
-    if (stat.isDirectory()) return gitPath;
-
-    // .git is a file (worktree) - parse gitdir line
-    const content = readFileSync(gitPath, "utf-8");
-    const match = content.match(/^gitdir:\s*(.+)$/m);
-    return match ? match[1].trim() : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Detect if repository is in a git operation state where running
- * checks could interfere. Uses file-based detection for speed and reliability.
- */
-function detectGitOperation(projectRoot) {
-  const gitDir = getGitDir(projectRoot);
-  if (!gitDir) return null;
-
-  // Modern git uses merge backend (rebase-merge), legacy uses apply backend (rebase-apply)
-  if (existsSync(path.join(gitDir, "rebase-merge"))) return "rebase";
-
-  // git am creates rebase-apply with an "applying" marker file
-  if (existsSync(path.join(gitDir, "rebase-apply", "applying"))) return "am";
-
-  // rebase --apply creates rebase-apply without "applying" marker
-  if (existsSync(path.join(gitDir, "rebase-apply"))) return "rebase";
-
-  // Other operations - check their HEAD files
-  if (existsSync(path.join(gitDir, "BISECT_LOG"))) return "bisect";
-  if (existsSync(path.join(gitDir, "CHERRY_PICK_HEAD"))) return "cherryPick";
-  if (existsSync(path.join(gitDir, "REVERT_HEAD"))) return "revert";
-  if (existsSync(path.join(gitDir, "MERGE_HEAD"))) return "merge";
-
-  return null;
-}
-
-/**
- * Check if quality checks should be skipped for the current git operation.
- */
-export function shouldSkipForGitOperation(config, projectRoot) {
-  const operation = detectGitOperation(projectRoot);
-  if (!operation) return { skip: false };
-
-  const gitConfig = config?.git ?? {};
-  const enabled = gitConfig[operation] ?? DEFAULT_GIT_CHECKS[operation];
-
-  return { skip: !enabled, operation };
-}
-
-// =============================================================================
 // Helpers
 // =============================================================================
 
+const commandExistsCache = new Map();
+
 function commandExists(cmd) {
+  if (commandExistsCache.has(cmd)) return commandExistsCache.get(cmd);
+  let exists;
   try {
     execSync(`command -v ${cmd}`, { stdio: "ignore" });
-    return true;
+    exists = true;
   } catch {
-    return false;
+    exists = false;
   }
+  commandExistsCache.set(cmd, exists);
+  return exists;
 }
 
 function runCommand(cmd, args, cwd) {
@@ -631,37 +568,6 @@ function runCheck(check, filePath, projectRoot) {
 }
 
 // =============================================================================
-// Output Helpers
-// =============================================================================
-
-function formatDiagnostic(d) {
-  const icon = d.severity === "error" ? "X" : "!";
-  const location = d.line
-    ? `[Line ${d.line}${d.column ? `:${d.column}` : ""}]`
-    : "";
-  const rule = d.rule ? ` [${d.rule}]` : "";
-  const source = `(${d.source})`;
-
-  return `  ${icon} ${location} ${d.message}${rule} ${source}`;
-}
-
-export function formatDiagnosticsBlock(diags, fileName) {
-  const lines = diags.map((d) => formatDiagnostic(d));
-  return `<new-diagnostics>\n${fileName}:\n${lines.join("\n")}\n</new-diagnostics>`;
-}
-
-/**
- * Format the set of commands checkmate ran into a reproduce-with block,
- * de-duplicated so repeated failures on the same check don't repeat lines.
- * @param {string[]} commands - Resolved command strings from failed checks
- * @returns {string}
- */
-export function formatCommandsBlock(commands) {
-  const lines = [...new Set(commands)].map((c) => `  ${c}`);
-  return `<reproduce-with>\n${lines.join("\n")}\n</reproduce-with>`;
-}
-
-// =============================================================================
 // Validate config file directly (no subprocess)
 // =============================================================================
 
@@ -739,25 +645,12 @@ export function checkFile(filePath, projectRoot, sessionConfig) {
   const isConfigFile = filePath.endsWith(".claude/checkmate.json");
 
   // root is a terminator (see resolveFileRoot): it stops the upward walk
-  // but grants no config by itself. Its type decides the fallback when it
-  // has no checkmate.json of its own - worktree is the same repo in a
-  // different checkout, so the session config legitimately reaches it;
-  // nested-repo is a different project, so the parent's config must not
-  // reach in.
-  let config = sessionConfig;
-  if (kind === "worktree") {
-    // Same repo, same tracked config; fall back to the session config if
-    // the worktree itself has no (untracked/gitignored) checkmate.json.
-    config = loadConfig(root).config || sessionConfig;
-  } else if (kind === "nested-repo") {
-    // A different repo must own itself; the parent must never impose its
-    // toolchain on a nested repo or submodule that hasn't shipped its own
-    // config. A missing config still falls through to the shared
-    // !config && !isConfigFile guard below, so an invalid (unparsable)
-    // checkmate.json in the nested repo still reaches the schema
-    // self-check instead of passing silently.
-    config = loadConfig(root).config;
-  }
+  // but grants no config by itself. resolveOwningConfig applies the
+  // per-kind rule: worktree falls back to the session config, nested-repo
+  // never inherits the parent's. A missing nested-repo config still falls
+  // through to the guard below, so an invalid checkmate.json still reaches
+  // the schema self-check.
+  const config = resolveOwningConfig({ root, kind }, sessionConfig);
 
   // No config and not editing the config file - nothing to do
   if (!config && !isConfigFile) {
@@ -872,12 +765,6 @@ export async function run() {
     block(reason, outcome.statusLine);
   }
 
-  const { results, statusLine } = outcome;
-
   // All clean - approve, but surface why any check was skipped
-  const skipMessages = results.filter((r) => r.skipped).map((r) => r.skipMessage).filter(Boolean);
-  const finalStatus = skipMessages.length > 0
-    ? `${statusLine} | ${skipMessages.join("; ")}`
-    : statusLine;
-  pass(finalStatus);
+  pass(formatOutcomeStatus(outcome));
 }

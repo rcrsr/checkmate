@@ -13,6 +13,7 @@
  */
 
 import * as fs from "node:fs";
+import { validateBash } from "./lib.mjs";
 
 // =============================================================================
 // Schema Definitions
@@ -302,136 +303,6 @@ function validateSkipDuringGitOperations(skipConfig) {
     }
     if (typeof value !== "boolean") {
       errors.push(`git.${key}: must be a boolean`);
-    }
-  }
-
-  return errors;
-}
-
-const BASH_KEYS = ["enabled", "maxFiles", "writePatterns"];
-
-/**
- * Detect an unbounded repeat applied to a group that itself contains an
- * unbounded repeat (catastrophic backtracking risk). Character-class contents
- * and escaped characters are ignored; `?` is not a repeat.
- */
-function hasNestedQuantifier(source) {
-  const stack = [];
-  let current = false;
-  let closedWithRepeat = false;
-  let i = 0;
-
-  while (i < source.length) {
-    const ch = source[i];
-    let repeat = false;
-    let closedGroup = false;
-
-    if (ch === "\\") {
-      i += 2;
-      closedWithRepeat = false;
-      continue;
-    }
-    if (ch === "[") {
-      i += 1;
-      while (i < source.length && source[i] !== "]") {
-        i += source[i] === "\\" ? 2 : 1;
-      }
-      i += 1;
-      closedWithRepeat = false;
-      continue;
-    }
-    if (ch === "(") {
-      stack.push(current);
-      current = false;
-    } else if (ch === ")") {
-      closedGroup = true;
-      closedWithRepeat = current;
-      const parent = stack.length > 0 ? stack.pop() : false;
-      current = parent || current;
-    } else if (ch === "+" || ch === "*") {
-      repeat = true;
-    } else if (ch === "{") {
-      const m = /^\{\d+,\}/.exec(source.slice(i));
-      if (m) {
-        repeat = true;
-        i += m[0].length - 1;
-      }
-    }
-
-    if (repeat) {
-      if (closedWithRepeat) return true;
-      current = true;
-    }
-    if (!closedGroup) closedWithRepeat = false;
-    i += 1;
-  }
-
-  return false;
-}
-
-/**
- * Validate the optional `bash` config section.
- * @param {*} bash - Value of config.bash
- * @returns {string[]} Errors, each prefixed `bash.`
- */
-export function validateBash(bash) {
-  const errors = [];
-
-  if (typeof bash !== "object" || bash === null || Array.isArray(bash)) {
-    errors.push("bash: must be an object");
-    return errors;
-  }
-
-  for (const key of Object.keys(bash)) {
-    if (!BASH_KEYS.includes(key)) {
-      errors.push(`bash.${key}: unknown key (valid: ${BASH_KEYS.join(", ")})`);
-    }
-  }
-
-  if (bash.enabled !== undefined && typeof bash.enabled !== "boolean") {
-    errors.push("bash.enabled: must be a boolean");
-  }
-
-  if (bash.maxFiles !== undefined) {
-    if (!Number.isInteger(bash.maxFiles) || bash.maxFiles < 1) {
-      errors.push("bash.maxFiles: must be a positive integer");
-    }
-  }
-
-  if (bash.writePatterns !== undefined) {
-    if (!Array.isArray(bash.writePatterns)) {
-      errors.push("bash.writePatterns: must be an array");
-      return errors;
-    }
-    const names = new Set();
-    for (let i = 0; i < bash.writePatterns.length; i++) {
-      const entry = bash.writePatterns[i];
-      const prefix = `bash.writePatterns[${i}]`;
-      if (!entry || typeof entry !== "object") {
-        errors.push(`${prefix}: must be an object`);
-        continue;
-      }
-      if (typeof entry.name !== "string" || entry.name === "") {
-        errors.push(`${prefix}.name: required non-empty string`);
-      } else if (names.has(entry.name)) {
-        errors.push(`${prefix}.name: duplicate name "${entry.name}"`);
-      } else {
-        names.add(entry.name);
-      }
-      if (typeof entry.match !== "string") {
-        errors.push(`${prefix}.match: required string`);
-      } else {
-        let compiled = true;
-        try {
-          new RegExp(entry.match);
-        } catch (e) {
-          compiled = false;
-          errors.push(`${prefix}.match: invalid regex - ${e.message}`);
-        }
-        if (compiled && hasNestedQuantifier(entry.match)) {
-          errors.push(`${prefix}.match: nested quantifier risks catastrophic backtracking`);
-        }
-      }
     }
   }
 

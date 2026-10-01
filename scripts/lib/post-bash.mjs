@@ -18,18 +18,22 @@ import {
   pass,
   block,
   resolveFileRoot,
+  resolveOwningConfig,
+  formatOutcomeStatus,
   resolveWritePatterns,
   getCheckedExtensions,
   detectBashWrites,
-} from "./lib.mjs";
-import {
-  checkFile,
   shouldSkipForGitOperation,
   formatDiagnosticsBlock,
   formatCommandsBlock,
-} from "./post-tool.mjs";
+} from "./lib.mjs";
+// Deviation from handlers importing only lib.mjs: checkFile needs
+// validateConfig and the parsers object, which stay in post-tool.mjs.
+import { checkFile } from "./post-tool.mjs";
 
 const DEFAULT_MAX_FILES = 10;
+const BASH_CHECK_BUDGET_MS = 2000;
+const CONFIG_FILE_SUFFIX = ".claude/checkmate.json";
 
 function realpathOrSelf(p) {
   try {
@@ -37,10 +41,6 @@ function realpathOrSelf(p) {
   } catch {
     return p;
   }
-}
-
-function isInsideProject(p, projectRoot) {
-  return resolveFileRoot(p, projectRoot).kind !== "outside";
 }
 
 /**
@@ -81,7 +81,7 @@ function dirtyFilesInRoot(root, files) {
 
     const status = spawnSync(
       "git",
-      ["status", "--porcelain", "-z", "--untracked-files=all", "--", ...files],
+      ["--no-optional-locks", "-c", "core.fsmonitor=", "status", "--porcelain", "-z", "--untracked-files=all", "--", ...files],
       { cwd: root, encoding: "utf-8" },
     );
     if (status.error || status.status !== 0) return null;
@@ -118,37 +118,57 @@ function confirmWrittenFiles(candidates) {
   return [...confirmed];
 }
 
+function resolveMaxFiles(sessionConfig) {
+  const rawMax = sessionConfig?.bash?.maxFiles;
+  return Number.isInteger(rawMax) && rawMax > 0 ? rawMax : DEFAULT_MAX_FILES;
+}
+
 /**
- * Detect candidate files, drop those outside the project, and confirm via git.
- * Any error means "no write found".
+ * Detect candidate files, drop those outside the project, keep those the
+ * owning config checks, and confirm via git. Any error means "no write found".
  * @returns {{ files: string[], gitSkip: string|null }} Confirmed absolute paths, or the git operation in progress
  */
-function findWrittenFiles(input, config, projectRoot) {
+function findWrittenFiles(input, sessionConfig, projectRoot, maxFiles) {
   try {
-    const bash = config.bash || {};
-    const extensions = getCheckedExtensions(config);
-    if (extensions.length === 0) return { files: [], gitSkip: null };
-
-    const baseDirs = [projectRoot];
-    if (typeof input.cwd === "string" && input.cwd !== "" && input.cwd !== projectRoot) {
-      if (isInsideProject(input.cwd, projectRoot)) baseDirs.push(input.cwd);
-    }
+    const bash = sessionConfig?.bash || {};
+    const baseDir =
+      typeof input.cwd === "string" && input.cwd !== "" && path.isAbsolute(input.cwd) ? input.cwd : projectRoot;
 
     const detected = detectBashWrites(input.tool_input.command, {
       patterns: resolveWritePatterns(bash),
-      extensions,
-      baseDirs,
+      extensions: null,
+      baseDir,
     });
 
+    const ownerByRoot = new Map();
+    const extensionsByRoot = new Map();
+    const seen = new Set();
     const candidates = [];
+    const limit = 3 * maxFiles;
     for (const p of detected.paths) {
+      if (candidates.length >= limit) break;
       const resolved = resolveFileRoot(p, projectRoot);
       if (resolved.kind === "outside") continue;
+      if (seen.has(resolved.filePath)) continue;
+
+      let eligible = resolved.filePath.endsWith(CONFIG_FILE_SUFFIX);
+      if (!eligible) {
+        if (!ownerByRoot.has(resolved.root)) {
+          const owner = resolveOwningConfig(resolved, sessionConfig);
+          ownerByRoot.set(resolved.root, owner);
+          extensionsByRoot.set(resolved.root, getCheckedExtensions(owner));
+        }
+        const ext = path.extname(resolved.filePath).slice(1);
+        eligible = ext !== "" && extensionsByRoot.get(resolved.root).includes(ext);
+      }
+      if (!eligible) continue;
+
+      seen.add(resolved.filePath);
       candidates.push({ root: resolved.root, filePath: resolved.filePath });
     }
     if (candidates.length === 0) return { files: [], gitSkip: null };
 
-    const gitCheck = shouldSkipForGitOperation(config, projectRoot);
+    const gitCheck = shouldSkipForGitOperation(sessionConfig, projectRoot);
     if (gitCheck.skip) return { files: [], gitSkip: gitCheck.operation };
 
     return { files: confirmWrittenFiles(candidates), gitSkip: null };
@@ -170,27 +190,40 @@ export async function run() {
   if (typeof command !== "string" || command.trim() === "") return;
   if (input.tool_input.run_in_background === true) return;
 
-  const { config, projectRoot } = loadConfig();
-  if (!projectRoot || !config) return;
-  if (config.bash?.enabled === false) return;
+  const { config: sessionConfig, projectRoot } = loadConfig();
+  if (!projectRoot) return;
+  if (sessionConfig?.bash?.enabled === false) return;
 
-  const { files, gitSkip } = findWrittenFiles(input, config, projectRoot);
+  const maxFiles = resolveMaxFiles(sessionConfig);
+  const { files, gitSkip } = findWrittenFiles(input, sessionConfig, projectRoot, maxFiles);
   if (gitSkip) {
     pass(`skipped (git ${gitSkip} in progress)`);
   }
   if (files.length === 0) return;
 
-  const rawMax = config.bash?.maxFiles;
-  const maxFiles = Number.isInteger(rawMax) && rawMax > 0 ? rawMax : DEFAULT_MAX_FILES;
-  const checked = files.slice(0, maxFiles);
+  const slice = files.slice(0, maxFiles);
   const overflow = files.slice(maxFiles);
 
   const realRoot = realpathOrSelf(projectRoot);
   const relOf = (f) => path.relative(realRoot, f);
 
   const outcomes = [];
-  for (const file of checked) {
-    outcomes.push({ rel: relOf(file), outcome: checkFile(file, projectRoot, config) });
+  const started = performance.now();
+  let budgetSkipped = [];
+  for (let i = 0; i < slice.length; i++) {
+    if (i > 0 && performance.now() - started >= BASH_CHECK_BUDGET_MS) {
+      budgetSkipped = slice.slice(i);
+      break;
+    }
+    outcomes.push({ rel: relOf(slice[i]), outcome: checkFile(slice[i], projectRoot, sessionConfig) });
+  }
+
+  const notices = [];
+  if (overflow.length > 0) {
+    notices.push(`${overflow.length} file(s) over maxFiles skipped: ${overflow.map(relOf).join(",")}`);
+  }
+  if (budgetSkipped.length > 0) {
+    notices.push(`${budgetSkipped.length} file(s) skipped (time budget): ${budgetSkipped.map(relOf).join(",")}`);
   }
 
   const failing = outcomes.filter((o) => o.outcome.hasFailures);
@@ -201,14 +234,17 @@ export async function run() {
     if (commands.length > 0) {
       reason += "\n" + formatCommandsBlock(commands);
     }
-    block(reason, failing.map((o) => `${o.rel}: ${o.outcome.statusLine}`).join(" | "));
+    for (const notice of notices) {
+      reason += "\n" + notice;
+    }
+    let message = failing.map((o) => `${o.rel}: ${o.outcome.statusLine}`).join(" | ");
+    if (notices.length > 0) message += `; ${notices.join("; ")}`;
+    block(reason, message);
   }
 
-  let message = outcomes
-    .map((o) => `${o.rel}: ${o.outcome.skippedReason || o.outcome.statusLine}`)
-    .join(" | ");
-  if (overflow.length > 0) {
-    message += `; ${overflow.length} file(s) over maxFiles skipped: ${overflow.map(relOf).join(",")}`;
-  }
+  if (notices.length === 0 && outcomes.every((o) => o.outcome.skippedReason)) return;
+
+  let message = outcomes.map((o) => `${o.rel}: ${formatOutcomeStatus(o.outcome)}`).join(" | ");
+  if (notices.length > 0) message += `; ${notices.join("; ")}`;
   pass(message);
 }

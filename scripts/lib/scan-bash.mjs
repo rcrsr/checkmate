@@ -23,8 +23,8 @@ import {
   resolveWritePatterns,
   getCheckedExtensions,
   detectBashWrites,
+  validateBash,
 } from "./lib.mjs";
-import { validateBash } from "./validate.mjs";
 
 const PATTERN_SAMPLE_LIMIT = 5;
 const MISS_SAMPLE_LIMIT = 20;
@@ -92,8 +92,31 @@ function isDirectory(p) {
   }
 }
 
+// Redaction rules, applied in order. Every regex is linear: no nested quantifiers.
+const REDACTED = "<redacted>";
+const REDACTION_RULES = [
+  { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*/g, replacement: REDACTED },
+  { re: /([A-Za-z][A-Za-z0-9+.-]{0,31}):\/\/[^\s:@/]+:[^\s@/]+@/g, replacement: "$1://<redacted>@" },
+  { re: /Authorization:[ \t]*(?:Bearer|Basic)[ \t]+[^\s"']+/gi, replacement: "Authorization: <redacted>" },
+  {
+    re: /(token|secret|passw|pwd|api_key|apikey|auth|credential)([A-Za-z0-9_-]{0,64})([=:])[ \t]*(?!<redacted>)(?:"[^"]*"|'[^']*'|[^\s"';&|]+)/gi,
+    replacement: "$1$2$3<redacted>",
+  },
+  { re: /\b(?:ghp_|gho_|ghs_|github_pat_|sk-|xox[abpr]-)[A-Za-z0-9_-]{20,}/g, replacement: REDACTED },
+  { re: /AKIA[A-Z0-9]{16}/g, replacement: REDACTED },
+];
+
+function redact(command) {
+  let text = command;
+  for (const rule of REDACTION_RULES) {
+    text = text.replace(rule.re, rule.replacement);
+  }
+  return text;
+}
+
 function truncate(command) {
-  return command.length > SAMPLE_MAX_CHARS ? command.slice(0, SAMPLE_MAX_CHARS) : command;
+  const safe = redact(command);
+  return safe.length > SAMPLE_MAX_CHARS ? safe.slice(0, SAMPLE_MAX_CHARS) : safe;
 }
 
 /**
@@ -147,11 +170,19 @@ export async function run() {
 
   let bashConfig = config ? config.bash : null;
   if (opts.patterns !== null) {
+    let raw;
+    try {
+      raw = readFileSync(opts.patterns, "utf-8");
+    } catch (err) {
+      console.error(`scan-bash: cannot read patterns file ${opts.patterns} (${err.code})`);
+      process.exitCode = 2;
+      return;
+    }
     let parsed;
     try {
-      parsed = JSON.parse(readFileSync(opts.patterns, "utf-8"));
-    } catch (err) {
-      console.error(`scan-bash: cannot read patterns file ${opts.patterns}: ${err.message}`);
+      parsed = JSON.parse(raw);
+    } catch {
+      console.error(`scan-bash: patterns file ${opts.patterns} is not valid JSON`);
       process.exitCode = 2;
       return;
     }
@@ -175,6 +206,11 @@ export async function run() {
   }
 
   const extensions = getCheckedExtensions(config);
+  if (extensions.length === 0) {
+    console.error(
+      `scan-bash: no checked extensions in ${projectRoot}/.claude/checkmate.json (missing, invalid, or no checks); paths and misses will be empty`,
+    );
+  }
   const patternStats = [];
   const currentCommand = { value: "" };
   const patterns = instrumentPatterns(resolveWritePatterns(bashConfig), patternStats, currentCommand);
@@ -207,7 +243,7 @@ export async function run() {
 
         report.commands += 1;
         currentCommand.value = command;
-        const detected = detectBashWrites(command, { patterns, extensions, baseDirs: [baseDir] });
+        const detected = detectBashWrites(command, { patterns, extensions, baseDir });
 
         if (detected.matched.length > 0) {
           report.gated += 1;
@@ -225,7 +261,7 @@ export async function run() {
           }
           if (inside === 0) report.outsideOnly += 1;
         } else if (MISS_COMMAND_RE.test(command)) {
-          const named = detectBashWrites(command, { patterns: anyPattern, extensions, baseDirs: [baseDir] });
+          const named = detectBashWrites(command, { patterns: anyPattern, extensions, baseDir });
           const insideProject = named.paths.some((abs) => relativeInside(abs, projectRoot) !== null);
           if (insideProject) {
             misses.count += 1;

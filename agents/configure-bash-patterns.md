@@ -93,7 +93,7 @@ Write a patterns file in the scratch directory, outside the project. Never write
 Each entry has a unique `name` and a `match` regex string. A name that equals an existing pattern name replaces that pattern. A new name adds a pattern.
 
 **Rules:**
-- No nested quantifiers (e.g., `(a+)+`, `(.*)*`); validation rejects them
+- No nested quantifiers or repeated alternation (e.g., `(a+)+`, `(.*)*`, `(a|aa)+`); validation rejects them
 - Double-escape backslashes in JSON (`\\s` not `\s`)
 - Anchor on the command word (`\\b`) to avoid matching file names
 - Keep patterns cheap; the scan flags a pattern `slow` above its time limit
@@ -142,24 +142,24 @@ Optionally re-run Step 1 once more to confirm the final `withPaths`.
 
 ## Known Patterns
 
-Start Step 3 from this catalog instead of writing regexes from scratch. Each entry passes validation and has positive and negative unit checks. Copy only the entries whose command appears in `misses.samples`, then re-score them in Step 4. Catalog entries count toward the 3-pattern budget and must meet the 5% rule like any other. The built-in defaults (`sed-inplace`, `perl-inplace`, `python-write`, `node-write`, `redirect`, `tee`, `cp-mv-into-repo`) are not repeated here.
+Start Step 3 from this catalog instead of writing regexes from scratch. Each entry passes validation and has positive and negative unit checks in `tests/validate.test.mjs` (test "known patterns catalog"). Copy only the entries whose command appears in `misses.samples`, then re-score them in Step 4. Catalog entries count toward the 3-pattern budget and must meet the 5% rule like any other. The built-in defaults (`sed-inplace`, `perl-inplace`, `python-write`, `node-write`, `redirect`, `tee`, `cp-mv-into-repo`) are not repeated here.
 
 **Opt-in only: `install`, `rsync`, `download-out`.** These move, copy, or download content that already exists. They rarely replace an Edit or Write, so they are not defaults and the agent must not add them on its own. Add one only when the user names it, or when the report shows a repo file edited by one of these commands. `cp` and `mv` into the repo are already covered by the built-in `cp-mv-into-repo`.
 
 ```json
 {
   "writePatterns": [
-    { "name": "install", "match": "(?:^|[;&|(\\n]\\s*)install\\s+\\S+\\s+\\S" },
-    { "name": "rsync", "match": "(?:^|[;&|(\\n]\\s*)rsync\\s" },
-    { "name": "dd-of", "match": "\\bdd\\s[^;&|\\n]*\\bof=" },
-    { "name": "truncate", "match": "(?:^|[;&|(\\n]\\s*)truncate\\s" },
-    { "name": "patch", "match": "(?:^|[;&|(\\n]\\s*)patch\\s" },
+    { "name": "install", "match": "(?:^|[;&|(\\n][ \\t]*)install\\s+\\S+\\s+\\S" },
+    { "name": "rsync", "match": "(?:^|[;&|(\\n][ \\t]*)rsync\\s" },
+    { "name": "dd-of", "match": "\\bdd\\s[^;&|\\n]{0,300}\\bof=" },
+    { "name": "truncate", "match": "(?:^|[;&|(\\n][ \\t]*)truncate\\s" },
+    { "name": "patch", "match": "(?:^|[;&|(\\n][ \\t]*)patch\\s" },
     { "name": "git-apply", "match": "\\bgit\\s+apply\\b" },
-    { "name": "ed-ex", "match": "(?:^|[;&|(\\n]\\s*)(?:ed|ex)\\s+-?\\S*\\s*\\S+\\.\\w+" },
+    { "name": "ed-ex", "match": "(?:^|[;&|(\\n][ \\t]*)(?:ed|ex)\\s+-?\\S*\\s*\\S+\\.\\w+" },
     { "name": "sponge", "match": "\\|\\s*sponge\\s" },
     { "name": "awk-inplace", "match": "\\b(?:awk|gawk)\\s+-i\\s+inplace" },
     { "name": "ruby-inplace", "match": "\\bruby\\s+-[a-zA-Z]*i" },
-    { "name": "download-out", "match": "\\bcurl\\s(?:[^;&|\\n]*\\s)?(?:-o|--output)\\s+(?!/dev/null)\\S|\\bwget\\s(?:[^;&|\\n]*\\s)?-O\\s+(?!/dev/null)\\S" },
+    { "name": "download-out", "match": "\\bcurl\\s(?:[^;&|\\n]{0,300}\\s)?(?:-o|--output)\\s+(?!/dev/null)\\S|\\bwget\\s(?:[^;&|\\n]{0,300}\\s)?-O\\s+(?!/dev/null)\\S" },
     { "name": "python-bytes-write", "match": "\\.write_bytes\\(|\\.open\\([^)\\n]{0,200}['\"][wa]b?['\"]" },
     { "name": "clobber-redirect", "match": ">\\|\\s*['\"]?[^\\s&|;<>'\"]+\\.[A-Za-z0-9]+\\b" }
   ]

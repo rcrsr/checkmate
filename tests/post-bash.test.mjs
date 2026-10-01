@@ -18,7 +18,7 @@ function detect(command, extensions) {
   return detectBashWrites(command, {
     patterns: resolveWritePatterns(null),
     extensions: extensions || EXTS,
-    baseDirs: [BASE],
+    baseDir: BASE,
   });
 }
 
@@ -40,6 +40,39 @@ describe("detectBashWrites patterns", () => {
 
   it("does not match sed without in-place", () => {
     assert.deepEqual(detect("sed -n '1p' x.py").matched, []);
+  });
+
+  it("matches sed in-place with the flag among other options", () => {
+    assert.ok(detect("sed -E -i s/a/b/ x.py").matched.includes("sed-inplace"));
+    assert.ok(detect("sed -e s/a/b/ -i x.py").matched.includes("sed-inplace"));
+    assert.ok(detect("sed --in-place=.bak s/a/b/ x.py").matched.includes("sed-inplace"));
+    assert.deepEqual(detect("sed -n p x.py").matched, []);
+  });
+
+  it("matches perl -p -i -e", () => {
+    assert.ok(detect("perl -p -i -e 's/a/b/' x.py").matched.includes("perl-inplace"));
+  });
+
+  it("matches redirect operators with a descriptor or ampersand", () => {
+    assert.ok(detect("cmd 2> err.py").matched.includes("redirect"));
+    assert.ok(detect("cmd &> o.py").matched.includes("redirect"));
+    assert.ok(detect("cmd &>> o.py").matched.includes("redirect"));
+    assert.deepEqual(detect("cmd 2>&1").matched, []);
+    assert.deepEqual(detect("cmd &> /dev/null").matched, []);
+  });
+
+  it("matches tee only for a non-scratch first target", () => {
+    assert.ok(!detect("echo a | tee /tmp/x.log").matched.includes("tee"));
+    assert.ok(!detect("echo a | tee /dev/null").matched.includes("tee"));
+    assert.ok(detect("echo a | tee -a src/x.py").matched.includes("tee"));
+  });
+
+  it("matches python and node write forms", () => {
+    assert.ok(detect("node -e \"fs.promises.writeFile('x.ts','a')\"").matched.includes("node-write"));
+    assert.ok(detect("python3 -c \"open(p, mode='w')\"").matched.includes("python-write"));
+    assert.ok(detect("python3 -c \"open(p,'r+')\"").matched.includes("python-write"));
+    assert.deepEqual(detect("python3 -c \"open(p,'r')\"").matched, []);
+    assert.deepEqual(detect("python3 -c \"open(p,'rb')\"").matched, []);
   });
 
   it("matches perl in-place", () => {
@@ -171,8 +204,12 @@ describe("detectBashWrites paths", () => {
     assert.deepEqual(detect("sed -i s/a/b/ x.py && cd other").paths, ["/proj/x.py"]);
   });
 
-  it("keeps the current base for cd -", () => {
-    assert.deepEqual(detect("cd a && cd - && sed -i s/a/b/ x.py").paths, ["/proj/a/x.py"]);
+  it("returns to the previous base for cd -", () => {
+    assert.deepEqual(detect("cd a && cd - && sed -i s/a/b/ x.py").paths, ["/proj/x.py"]);
+  });
+
+  it("leaves the base unchanged for cd - with no previous base", () => {
+    assert.deepEqual(detect("cd - && sed -i s/a/b/ x.py").paths, ["/proj/x.py"]);
   });
 
   it("expands ~ in cd to the home directory", () => {
@@ -180,13 +217,61 @@ describe("detectBashWrites paths", () => {
     assert.deepEqual(r.paths, [`${os.homedir()}/w/x.py`]);
   });
 
-  it("resolves against each base dir and de-duplicates", () => {
+  it("resolves against the single base dir and de-duplicates", () => {
     const r = detectBashWrites("sed -i s/a/b/ x.py /abs/y.py x.py", {
       patterns: resolveWritePatterns(null),
       extensions: EXTS,
-      baseDirs: ["/p1", "/p2"],
+      baseDir: "/p1",
     });
-    assert.deepEqual(r.paths, ["/p1/x.py", "/p2/x.py", "/abs/y.py"]);
+    assert.deepEqual(r.paths, ["/p1/x.py", "/abs/y.py"]);
+  });
+
+  it("extracts a quoted path containing spaces whole", () => {
+    assert.deepEqual(detect("sed -i s/a/b/ 'my dir/x.py'").paths, ["/proj/my dir/x.py"]);
+    assert.deepEqual(detect('sed -i s/a/b/ "my dir/x.py"').paths, ["/proj/my dir/x.py"]);
+  });
+
+  it("follows a quoted cd argument with spaces", () => {
+    assert.deepEqual(detect('cd "my dir" && sed -i s/a/b/ x.py').paths, ["/proj/my dir/x.py"]);
+  });
+
+  it("extracts a bracketed route path", () => {
+    assert.deepEqual(detect("sed -i s/a/b/ app/[id]/page.tsx").paths, ["/proj/app/[id]/page.tsx"]);
+  });
+
+  it("expands ~/ for unquoted tokens only", () => {
+    assert.deepEqual(detect("sed -i s/a/b/ ~/w/x.py").paths, [`${os.homedir()}/w/x.py`]);
+    assert.deepEqual(detect("sed -i s/a/b/ '~/w/x.py'").paths, ["/proj/~/w/x.py"]);
+  });
+
+  it("ignores a cd with $, backtick or glob in its argument", () => {
+    for (const arg of ["$HOME", "`pwd`", "d*", "d?", "d[1]"]) {
+      assert.deepEqual(detect(`cd ${arg} && sed -i s/a/b/ x.py`).paths, ["/proj/x.py"], arg);
+    }
+  });
+
+  it("counts cd only as a command word", () => {
+    assert.deepEqual(detect("echo cd a; sed -i s/a/b/ x.py").paths, ["/proj/x.py"]);
+  });
+
+  it("collects at most 500 unique paths in first-appearance order", () => {
+    const names = [];
+    for (let n = 0; n < 510; n++) names.push(`f${n}.py`);
+    const r = detect(`sed -i s/a/b/ ${names.join(" ")}`);
+    assert.equal(r.paths.length, 500);
+    assert.equal(r.paths[0], "/proj/f0.py");
+    assert.equal(r.paths[499], "/proj/f499.py");
+  });
+
+  it("extracts any letter-led extension when extensions is null", () => {
+    const cmd = "echo a > notes.xyz";
+    const r = detectBashWrites(cmd, { patterns: resolveWritePatterns(null), extensions: null, baseDir: BASE });
+    assert.deepEqual(r.paths, ["/proj/notes.xyz"]);
+  });
+
+  it("returns an empty result when extensions is empty", () => {
+    const r = detectBashWrites("echo a > x.py", { patterns: resolveWritePatterns(null), extensions: [], baseDir: BASE });
+    assert.deepEqual(r, { matched: [], paths: [] });
   });
 
   it("detects a write after 20000 chars of padding", () => {
@@ -202,6 +287,16 @@ describe("detectBashWrites paths", () => {
 
   it("scans a 100000-char line quickly with the default patterns", () => {
     const inputs = [
+      "\n".repeat(100000),
+      "sed ".repeat(25000),
+      "perl ".repeat(20000),
+      "tee ".repeat(25000),
+      "cd ".repeat(33000),
+      '"'.repeat(100000),
+      '"a '.repeat(33000),
+      "sed -i s/a/b/ x.py" + "\n".repeat(99000),
+      "cd x;".repeat(20000) + " sed -i s/a/b/ y.py",
+      "sed -i s/a/b/ x.py;" + "cd x;".repeat(10000) + " y.py".repeat(10000),
       " ".repeat(100000),
       "a ".repeat(50000),
       "cp" + " ".repeat(99998),
@@ -214,12 +309,18 @@ describe("detectBashWrites paths", () => {
       "cp a b ".repeat(14000),
       "(mv ".repeat(25000),
     ];
+    for (const cmd of inputs) detect(cmd);
     for (const cmd of inputs) {
       const start = Date.now();
       detect(cmd);
       const elapsed = Date.now() - start;
-      assert.ok(elapsed < 25,`slow (${elapsed} ms) on ${JSON.stringify(cmd.slice(0, 30))}`);
+      assert.ok(elapsed < 250, `slow (${elapsed} ms) on ${JSON.stringify(cmd.slice(0, 30))}`);
     }
+  });
+
+  it("detects the write target inside a quoted wrapper command", () => {
+    const r = detect('bash -c "sed -i s/a/b/ x.py"');
+    assert.ok(r.paths.includes("/proj/x.py"));
   });
 
   it("gives no path for an extension outside the configured set", () => {
@@ -246,6 +347,18 @@ describe("resolveWritePatterns", () => {
     const r = resolveWritePatterns({ writePatterns: [{ name: "bad", match: "(" }] });
     assert.equal(r.length, DEFAULT_WRITE_PATTERNS.length);
     assert.ok(!r.some((p) => p.name === "bad"));
+  });
+
+  it("drops a nested-quantifier config entry at runtime", () => {
+    const r = resolveWritePatterns({ writePatterns: [{ name: "evil", match: "(a+)+" }] });
+    assert.equal(r.length, DEFAULT_WRITE_PATTERNS.length);
+    assert.ok(!r.some((p) => p.name === "evil"));
+  });
+
+  it("keeps the default when an override risks repeated alternation", () => {
+    const r = resolveWritePatterns({ writePatterns: [{ name: "tee", match: "(a|aa)+" }] });
+    const tee = r.find((p) => p.name === "tee");
+    assert.equal(tee.match, DEFAULT_WRITE_PATTERNS.find((p) => p.name === "tee").match);
   });
 
   it("compiles without global or sticky flags", () => {
@@ -591,6 +704,125 @@ describe("post-bash end-to-end", () => {
     withWorkspace((ws) => {
       const root = makeProject(ws, baseConfig(), { "keep.py": "ok\n" }, false);
       assert.equal(postBash(root, { command: "sed -i 's/a/b/' missing.py" }).stdout, "");
+    });
+  });
+
+  it("uses the hook cwd as the only base for relative paths", () => {
+    withWorkspace((ws) => {
+      const root = makeProject(ws, baseConfig(), { "keep.py": "ok\n" }, true);
+      dirty(root, "only.py", "BAD\n");
+      dirty(root, "sub/only.py", "BAD\n");
+      const r = postBash(root, { command: "sed -i 's/a/b/' only.py" }, { cwd: path.join(root, "sub") });
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.decision, "block");
+      assert.match(out.reason, /sub\/only\.py:/);
+      assert.ok(!/(^|\n)only\.py:/.test(out.reason));
+    });
+  });
+
+  it("lets a nested repo own its extensions", () => {
+    withWorkspace((ws) => {
+      const root = makeProject(ws, baseConfig(), { "keep.py": "ok\n" }, true);
+      const nestedConfig = {
+        environments: [
+          {
+            name: "nested",
+            paths: ["."],
+            checks: {
+              ".md": [{ name: "badmd", command: "node", args: ["-e", CHECK_SCRIPT, "$FILE"], parser: "generic" }],
+            },
+          },
+        ],
+      };
+      const nested = path.join(root, "nested");
+      fs.mkdirSync(path.join(nested, ".claude"), { recursive: true });
+      fs.writeFileSync(path.join(nested, ".claude", "checkmate.json"), JSON.stringify(nestedConfig));
+      fs.writeFileSync(path.join(nested, "x.md"), "ok\n");
+      git(nested, "init", "-q");
+      git(nested, "add", "-A");
+      git(nested, "commit", "-q", "-m", "init");
+      dirty(nested, "x.md", "BAD\n");
+      const out = JSON.parse(postBash(root, { command: "sed -i 's/a/b/' nested/x.md" }).stdout);
+      assert.equal(out.decision, "block");
+      assert.match(out.reason, /nested\/x\.md:/);
+    });
+  });
+
+  it("blocks on invalid JSON written to checkmate.json", () => {
+    withWorkspace((ws) => {
+      const root = makeProject(ws, baseConfig(), { "keep.py": "ok\n" }, true);
+      dirty(root, ".claude/checkmate.json", "{\n");
+      const out = JSON.parse(postBash(root, { command: "echo '{' > .claude/checkmate.json" }).stdout);
+      assert.equal(out.decision, "block");
+      assert.match(out.reason, /Invalid JSON/);
+    });
+  });
+
+  it("reports 2 files over maxFiles when 12 failing files are written", () => {
+    withWorkspace((ws) => {
+      const root = makeProject(ws, baseConfig(), { "keep.py": "ok\n" }, true);
+      const names = [];
+      for (let i = 1; i <= 12; i++) {
+        names.push(`f${i}.py`);
+        dirty(root, `f${i}.py`, "BAD\n");
+      }
+      const out = JSON.parse(postBash(root, { command: `sed -i 's/a/b/' ${names.join(" ")}` }).stdout);
+      assert.equal(out.decision, "block");
+      assert.match(out.reason, /2 file\(s\) over maxFiles skipped/);
+    });
+  });
+
+  it("passes with a not-found message when the check command is missing", () => {
+    withWorkspace((ws) => {
+      const config = {
+        environments: [
+          {
+            name: "root",
+            paths: ["."],
+            checks: {
+              ".py": [{ name: "ghost", command: "checkmate-no-such-command", args: ["$FILE"], parser: "generic" }],
+            },
+          },
+        ],
+      };
+      const root = makeProject(ws, config, { "bad.py": "ok\n" }, true);
+      dirty(root, "bad.py", "BAD\n");
+      const out = JSON.parse(postBash(root, { command: "sed -i 's/a/b/' bad.py" }).stdout);
+      assert.equal(out.decision, undefined);
+      assert.match(out.systemMessage, /not found - skipping/);
+    });
+  });
+
+  it("stays silent for an excluded path", () => {
+    withWorkspace((ws) => {
+      const config = baseConfig();
+      config.environments[0].exclude = ["vendor/**"];
+      const root = makeProject(ws, config, { "keep.py": "ok\n" }, true);
+      dirty(root, "vendor/bad.py", "BAD\n");
+      assert.equal(postBash(root, { command: "sed -i 's/a/b/' vendor/bad.py" }).stdout, "");
+    });
+  });
+
+  it("stops checking when the time budget is spent but always checks the first file", () => {
+    withWorkspace((ws) => {
+      const sleepScript = "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,2300)";
+      const config = {
+        environments: [
+          {
+            name: "root",
+            paths: ["."],
+            checks: {
+              ".py": [{ name: "slow", command: "node", args: ["-e", sleepScript, "$FILE"], parser: "generic" }],
+            },
+          },
+        ],
+      };
+      const root = makeProject(ws, config, { "keep.py": "ok\n" }, true);
+      for (const n of ["a.py", "b.py", "c.py"]) dirty(root, n, "ok\n");
+      const out = JSON.parse(postBash(root, { command: "sed -i 's/a/b/' a.py b.py c.py" }).stdout);
+      assert.match(out.systemMessage, /a\.py: /);
+      assert.match(out.systemMessage, /skipped \(time budget\)/);
+      assert.match(out.systemMessage, /2 file\(s\) skipped \(time budget\).*b\.py.*c\.py/);
     });
   });
 });

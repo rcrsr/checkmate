@@ -144,3 +144,21 @@ test("pre-tool still denies delegation for a Write target that doesn't exist yet
     rmSync(projectRoot, { recursive: true, force: true });
   }
 });
+
+test("pre-tool passes with a rebase notice when a git rebase is in progress", () => {
+  const workspace = realpathSync(mkdtempSync(path.join(tmpdir(), "checkmate-test-")));
+  try {
+    const projectRoot = path.join(workspace, "project-a");
+    writeAgentConfig(projectRoot);
+    mkdirSync(path.join(projectRoot, ".git", "rebase-merge"), { recursive: true });
+
+    const filePath = path.join(projectRoot, "foo.mjs");
+    writeFileSync(filePath, "export const x = 1;\n");
+
+    const output = runPreTool(filePath, projectRoot);
+    assert.notEqual(output.hookSpecificOutput?.permissionDecision, "deny");
+    assert.match(output.systemMessage, /git rebase in progress/);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});

@@ -3,6 +3,7 @@
  * Shared utilities for checkmate scripts.
  */
 
+import { existsSync, readFileSync, statSync } from "node:fs";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -321,6 +322,9 @@ export function matchesExcludePattern(relativePath, pattern) {
 // head of a longer command is scanned. Long heredoc scripts must fit under it.
 const BASH_SCAN_LIMIT = 100000;
 
+// Cap on unique candidate paths collected from one command.
+const BASH_PATH_LIMIT = 500;
+
 // Scratch and system targets that are never project files.
 const SCRATCH_TARGETS = "/tmp/|/dev/|/proc/|\\$TMPDIR/|\\$\\{TMPDIR\\}/|~/\\.claude/|\\$HOME/\\.claude/";
 
@@ -333,15 +337,25 @@ const TRAILING_REDIRECTS = "(?:[ \\t]+[0-9&]?>{1,2}&?[ \\t]*[^\\s;&|<>)(]*)?".re
  * Order is significant: config entries override by name in place.
  */
 export const DEFAULT_WRITE_PATTERNS = [
-  { name: "sed-inplace", match: "\\bsed\\s+(?:-[a-zA-Z]*i|--in-place)" },
-  { name: "perl-inplace", match: "\\bperl\\s+-[a-zA-Z]*i" },
-  { name: "python-write", match: "\\.write_text\\(|\\bopen\\([^)\\n]{0,200},\\s*['\"][wa]" },
-  { name: "node-write", match: "writeFileSync|appendFileSync" },
+  // In-place flag anywhere among the options; the span stops at a command
+  // separator and is bounded, which keeps matching linear.
+  { name: "sed-inplace", match: "\\bsed(?=[ \\t])[^;&|\\n]{0,300}?[ \\t](?:-[a-zA-Z]*i|--in-place)" },
+  { name: "perl-inplace", match: "\\bperl(?=[ \\t])[^;&|\\n]{0,300}?[ \\t]-[a-zA-Z]*i" },
+  {
+    name: "python-write",
+    match:
+      "\\.write_text\\(|\\bopen\\([^)\\n]{0,200}?(?:,[ \\t]*|\\bmode[ \\t]*=[ \\t]*)['\"][rbtU]*[wax+][rwaxbtU+]*['\"]",
+  },
+  { name: "node-write", match: "writeFileSync|appendFileSync|writeFile\\(|appendFile\\(" },
   {
     name: "redirect",
-    match: `(?:^|[^0-9&><=-])>{1,2}\\s*['"]?(?!(?:${SCRATCH_TARGETS}))[^\\s&|;<>'"]+\\.[A-Za-z0-9]+\\b`,
+    match: `(?:^|[^0-9&><=-])(?:[0-9]|&)?>{1,2}\\s*['"]?(?!(?:${SCRATCH_TARGETS}))[^\\s&|;<>'"]+\\.[A-Za-z0-9]+\\b`,
   },
-  { name: "tee", match: "\\btee\\s" },
+  // Matches only when the first non-option target is not a scratch target.
+  {
+    name: "tee",
+    match: `\\btee(?:[ \\t]+-[a-zA-Z-]*){0,3}[ \\t]+(?!['"]?(?:${SCRATCH_TARGETS}))[^\\s;&|<>)(-]`,
+  },
   // Known limits: matches only when cp/mv is a command word right after the
   // start or one of ;&|( or a newline (so `sudo cp`, `x=1 cp`, `time cp`,
   // `then cp` are not matched). The destination is taken as the last argument,
@@ -357,10 +371,21 @@ export const DEFAULT_WRITE_PATTERNS = [
   },
 ];
 
+function isSafeWritePattern(match) {
+  try {
+    new RegExp(match);
+  } catch {
+    return false;
+  }
+  return !hasNestedQuantifier(match);
+}
+
 /**
  * Merge config write patterns over the defaults, by name, and compile them.
  * A config entry replaces the default of the same name in place; a new name is
- * appended. Entries whose regex does not compile are dropped. Never throws.
+ * appended. Entries whose regex does not compile or risks catastrophic
+ * backtracking are dropped before the merge, so a default of the same name
+ * survives. Never throws.
  * @param {object|null|undefined} bashConfig - Config `bash` section
  * @returns {{ name: string, match: string, re: RegExp }[]}
  */
@@ -370,6 +395,7 @@ export function resolveWritePatterns(bashConfig) {
 
   for (const entry of custom) {
     if (!entry || typeof entry.name !== "string" || typeof entry.match !== "string") continue;
+    if (!isSafeWritePattern(entry.match)) continue;
     const index = merged.findIndex((p) => p.name === entry.name);
     if (index >= 0) {
       merged[index] = { name: entry.name, match: entry.match };
@@ -410,16 +436,51 @@ export function getCheckedExtensions(config) {
   return [...found];
 }
 
+const PATH_CHAR_RE = /^[\w.$~@/[\]-]$/;
+const QUOTED_PATH_RE = /^[\w.$~@/[\]-](?:[\w.$~@/ [\]-]*[\w.$~@/[\]-])?$/;
+const CD_UNSAFE_RE = /[$`*?[]/;
+const CD_ARG_STOP_RE = /^[\s;&|()'"<>]$/;
+const PATH_START_CHARS = " \t\n\r='\"(>";
+const PATH_END_CHARS = " \t\n\r'\";)|&";
+const QUOTED_PATH_MAX = 1024;
+
+function hasAllowedExtension(token, extSet) {
+  const dot = token.lastIndexOf(".");
+  if (dot < 1 || token[dot - 1] === "/") return false;
+  const ext = token.slice(dot + 1);
+  if (extSet === null) return /^[A-Za-z]\w*$/.test(ext);
+  return extSet.has(ext);
+}
+
+// Resolve a cd chain lazily: relative arguments accumulate and are joined in
+// one path.resolve call, and the result is cached on the node.
+function resolveCwd(node) {
+  if (node.resolved !== null) return node.resolved;
+  const args = [];
+  let cur = node;
+  while (cur.resolved === null) {
+    args.push(cur.arg);
+    cur = cur.up;
+  }
+  args.reverse();
+  node.resolved = path.resolve(cur.resolved, args.join("/"));
+  return node.resolved;
+}
+
 /**
  * Detect file writes in a Bash command. Pure: no fs access, no spawning.
- * Each candidate path resolves against the last `cd` that precedes it.
+ * One pass in source order; each candidate path resolves against the last
+ * `cd` that precedes it. os.homedir() is read at most once, and only when a
+ * ~ must expand.
  * @param {string} command
- * @param {{ patterns: { name: string, re: RegExp }[], extensions: string[], baseDirs: string[] }} options
+ * @param {{ patterns: { name: string, re: RegExp }[], baseDir: string, extensions: string[]|null }} options
+ *   extensions: [] yields an empty result; null accepts any extension that starts with a letter.
  * @returns {{ matched: string[], paths: string[] }}
  */
-export function detectBashWrites(command, { patterns, extensions, baseDirs }) {
+export function detectBashWrites(command, { patterns, baseDir, extensions }) {
   const result = { matched: [], paths: [] };
-  if (typeof command !== "string" || extensions.length === 0) return result;
+  if (typeof command !== "string" || typeof baseDir !== "string" || baseDir === "") return result;
+  if (extensions !== null && !(Array.isArray(extensions) && extensions.length > 0)) return result;
 
   const cmd = command.slice(0, BASH_SCAN_LIMIT);
   for (const p of patterns) {
@@ -427,28 +488,408 @@ export function detectBashWrites(command, { patterns, extensions, baseDirs }) {
   }
   if (result.matched.length === 0) return result;
 
-  const ext = extensions.map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const pathRe = new RegExp(
-    `(?:^|['"\\s=(])((?:[\\w.$~@\\/-]+\\/)?[\\w.$@-]+\\.(?:${ext}))(?=['"\\s;)|&]|$)`,
-    "gm",
-  );
-  const cds = [...cmd.matchAll(/(?:^|[;&|\n(]\s*)cd\s+['"]?([^\s;&'"()]+)/g)];
-
+  const extSet = extensions === null ? null : new Set(extensions);
+  const len = cmd.length;
   const seen = new Set();
-  for (const m of cmd.matchAll(pathRe)) {
-    for (const baseDir of baseDirs) {
-      let base = baseDir;
-      for (const c of cds) {
-        if (c.index > m.index) break;
-        if (c[1] === "-") continue;
-        base = path.resolve(base, c[1].replace(/^~/, os.homedir()));
+  let home = null;
+  let cwd = { arg: "", up: null, resolved: path.resolve(baseDir), cache: new Map() };
+  let prevCwd = null;
+  let cmdWord = true;
+  let i = 0;
+
+  const homeDir = () => {
+    if (home === null) home = os.homedir();
+    return home;
+  };
+  const emit = (raw, expandTilde) => {
+    const key = expandTilde ? "u" + raw : "q" + raw;
+    if (cwd.cache.has(key)) return;
+    const p = expandTilde && raw.startsWith("~/") ? homeDir() + raw.slice(1) : raw;
+    const abs = path.resolve(resolveCwd(cwd), p);
+    cwd.cache.set(key, abs);
+    if (!seen.has(abs)) {
+      seen.add(abs);
+      result.paths.push(abs);
+    }
+  };
+
+  while (i < len && seen.size < BASH_PATH_LIMIT) {
+    const ch = cmd[i];
+
+    if (ch === "\n" || ch === ";" || ch === "&" || ch === "|" || ch === "(") {
+      cmdWord = true;
+      i += 1;
+      continue;
+    }
+    if (ch === " " || ch === "\t") {
+      i += 1;
+      continue;
+    }
+
+    if (cmdWord && ch === "c" && cmd.startsWith("cd", i) && (cmd[i + 2] === " " || cmd[i + 2] === "\t")) {
+      cmdWord = false;
+      let j = i + 2;
+      while (cmd[j] === " " || cmd[j] === "\t") j += 1;
+      let arg = "";
+      let quoted = false;
+      let end = j;
+      const q = cmd[j];
+      if (q === "'" || q === '"') {
+        const close = cmd.indexOf(q, j + 1);
+        if (close === -1) {
+          end = j + 1;
+        } else {
+          quoted = true;
+          end = close + 1;
+          arg = cmd.slice(j + 1, close);
+          if (arg.includes("\n")) arg = "";
+        }
+      } else {
+        while (end < len && !CD_ARG_STOP_RE.test(cmd[end])) end += 1;
+        arg = cmd.slice(j, end);
       }
-      const abs = path.isAbsolute(m[1]) ? m[1] : path.resolve(base, m[1]);
-      if (!seen.has(abs)) {
-        seen.add(abs);
-        result.paths.push(abs);
+
+      if (arg === "-") {
+        if (prevCwd !== null) {
+          const swap = cwd;
+          cwd = prevCwd;
+          prevCwd = swap;
+        }
+      } else if (arg !== "" && !CD_UNSAFE_RE.test(arg)) {
+        const target = !quoted && (arg === "~" || arg.startsWith("~/")) ? homeDir() + arg.slice(1) : arg;
+        prevCwd = cwd;
+        cwd = path.isAbsolute(target)
+          ? { arg: "", up: null, resolved: path.resolve(target), cache: new Map() }
+          : { arg: target, up: cwd, resolved: null, cache: new Map() };
+      }
+      i = Math.max(end, i + 2);
+      continue;
+    }
+
+    cmdWord = false;
+
+    if (ch === "'" || ch === '"') {
+      const close = cmd.indexOf(ch, i + 1);
+      if (close !== -1 && close - i - 1 <= QUOTED_PATH_MAX) {
+        const content = cmd.slice(i + 1, close);
+        if (QUOTED_PATH_RE.test(content) && hasAllowedExtension(content, extSet)) {
+          emit(content, false);
+          // Content with an option word may wrap a command (bash -c "sed -i ... x.py"): scan inside too.
+          i = /\s-/.test(content) ? i + 1 : close + 1;
+          continue;
+        }
+      }
+      i += 1;
+      continue;
+    }
+
+    if (PATH_CHAR_RE.test(ch)) {
+      let j = i + 1;
+      while (j < len && PATH_CHAR_RE.test(cmd[j])) j += 1;
+      const token = cmd.slice(i, j);
+      // An empty string (start or end of command) counts as a boundary.
+      const before = i === 0 ? "" : cmd[i - 1];
+      const after = j >= len ? "" : cmd[j];
+      if (PATH_START_CHARS.includes(before) && PATH_END_CHARS.includes(after) && hasAllowedExtension(token, extSet)) {
+        emit(token, true);
+      }
+      i = j;
+      continue;
+    }
+
+    i += 1;
+  }
+  return result;
+}
+
+// =============================================================================
+// Git State Detection
+// =============================================================================
+
+
+const DEFAULT_GIT_CHECKS = {
+  rebase: false,     // Disabled: formatting after commit N conflicts with patch N+1
+  am: false,         // Disabled: sequential patch application (same issue as rebase)
+  bisect: false,     // Disabled: any change corrupts historical state being tested
+  merge: true,       // Enabled: single operation, safe to format
+  cherryPick: true,  // Enabled: usually single commit; user can override for multi-pick
+  revert: true,      // Enabled: single operation, safe to format
+};
+
+/**
+ * Resolve the actual .git directory path.
+ * Handles worktrees where .git is a file pointing to the real git dir.
+ */
+function getGitDir(projectRoot) {
+  const gitPath = path.join(projectRoot, ".git");
+
+  if (!existsSync(gitPath)) return null;
+
+  try {
+    const stat = statSync(gitPath);
+    if (stat.isDirectory()) return gitPath;
+
+    // .git is a file (worktree) - parse gitdir line
+    const content = readFileSync(gitPath, "utf-8");
+    const match = content.match(/^gitdir:\s*(.+)$/m);
+    return match ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Detect if repository is in a git operation state where running
+ * checks could interfere. Uses file-based detection for speed and reliability.
+ */
+export function detectGitOperation(projectRoot) {
+  const gitDir = getGitDir(projectRoot);
+  if (!gitDir) return null;
+
+  // Modern git uses merge backend (rebase-merge), legacy uses apply backend (rebase-apply)
+  if (existsSync(path.join(gitDir, "rebase-merge"))) return "rebase";
+
+  // git am creates rebase-apply with an "applying" marker file
+  if (existsSync(path.join(gitDir, "rebase-apply", "applying"))) return "am";
+
+  // rebase --apply creates rebase-apply without "applying" marker
+  if (existsSync(path.join(gitDir, "rebase-apply"))) return "rebase";
+
+  // Other operations - check their HEAD files
+  if (existsSync(path.join(gitDir, "BISECT_LOG"))) return "bisect";
+  if (existsSync(path.join(gitDir, "CHERRY_PICK_HEAD"))) return "cherryPick";
+  if (existsSync(path.join(gitDir, "REVERT_HEAD"))) return "revert";
+  if (existsSync(path.join(gitDir, "MERGE_HEAD"))) return "merge";
+
+  return null;
+}
+
+/**
+ * Check if quality checks should be skipped for the current git operation.
+ */
+export function shouldSkipForGitOperation(config, projectRoot) {
+  const operation = detectGitOperation(projectRoot);
+  if (!operation) return { skip: false };
+
+  const gitConfig = config?.git ?? {};
+  const enabled = gitConfig[operation] ?? DEFAULT_GIT_CHECKS[operation];
+
+  return { skip: !enabled, operation };
+}
+
+// =============================================================================
+// Output Helpers
+// =============================================================================
+
+function formatDiagnostic(d) {
+  const icon = d.severity === "error" ? "X" : "!";
+  const location = d.line
+    ? `[Line ${d.line}${d.column ? `:${d.column}` : ""}]`
+    : "";
+  const rule = d.rule ? ` [${d.rule}]` : "";
+  const source = `(${d.source})`;
+
+  return `  ${icon} ${location} ${d.message}${rule} ${source}`;
+}
+
+export function formatDiagnosticsBlock(diags, fileName) {
+  const lines = diags.map((d) => formatDiagnostic(d));
+  return `<new-diagnostics>\n${fileName}:\n${lines.join("\n")}\n</new-diagnostics>`;
+}
+
+/**
+ * Format the set of commands checkmate ran into a reproduce-with block,
+ * de-duplicated so repeated failures on the same check don't repeat lines.
+ * @param {string[]} commands - Resolved command strings from failed checks
+ * @returns {string}
+ */
+export function formatCommandsBlock(commands) {
+  const lines = [...new Set(commands)].map((c) => `  ${c}`);
+  return `<reproduce-with>\n${lines.join("\n")}\n</reproduce-with>`;
+}
+
+// =============================================================================
+// Bash Config Validation
+// =============================================================================
+
+const BASH_KEYS = ["enabled", "maxFiles", "writePatterns"];
+
+/**
+ * Detect catastrophic-backtracking risks (best effort). R1: an unbounded
+ * repeat applied to a group that itself contains an unbounded repeat. R2: an
+ * unbounded repeat (+, * or {n,}) applied to a group whose own top level
+ * contains |. Character-class contents and escaped characters are ignored;
+ * `?` is not a repeat.
+ */
+export function hasNestedQuantifier(source) {
+  const stack = [];
+  let current = false;
+  let currentAlt = false;
+  let closedWithRepeat = false;
+  let closedWithAlt = false;
+  let i = 0;
+
+  while (i < source.length) {
+    const ch = source[i];
+    let repeat = false;
+    let closedGroup = false;
+
+    if (ch === "\\") {
+      i += 2;
+      closedWithRepeat = false;
+      closedWithAlt = false;
+      continue;
+    }
+    if (ch === "[") {
+      i += 1;
+      while (i < source.length && source[i] !== "]") {
+        i += source[i] === "\\" ? 2 : 1;
+      }
+      i += 1;
+      closedWithRepeat = false;
+      closedWithAlt = false;
+      continue;
+    }
+    if (ch === "(") {
+      stack.push({ repeat: current, alt: currentAlt });
+      current = false;
+      currentAlt = false;
+    } else if (ch === ")") {
+      closedGroup = true;
+      closedWithRepeat = current;
+      closedWithAlt = currentAlt;
+      const parent = stack.length > 0 ? stack.pop() : { repeat: false, alt: false };
+      current = parent.repeat || current;
+      currentAlt = parent.alt;
+    } else if (ch === "|") {
+      currentAlt = true;
+    } else if (ch === "+" || ch === "*") {
+      repeat = true;
+    } else if (ch === "{") {
+      const m = /^\{\d+,\}/.exec(source.slice(i));
+      if (m) {
+        repeat = true;
+        i += m[0].length - 1;
+      }
+    }
+
+    if (repeat) {
+      if (closedWithRepeat || closedWithAlt) return true;
+      current = true;
+    }
+    if (!closedGroup) {
+      closedWithRepeat = false;
+      closedWithAlt = false;
+    }
+    i += 1;
+  }
+
+  return false;
+}
+
+/**
+ * Validate the optional `bash` config section.
+ * @param {*} bash - Value of config.bash
+ * @returns {string[]} Errors, each prefixed `bash.`
+ */
+export function validateBash(bash) {
+  const errors = [];
+
+  if (typeof bash !== "object" || bash === null || Array.isArray(bash)) {
+    errors.push("bash: must be an object");
+    return errors;
+  }
+
+  for (const key of Object.keys(bash)) {
+    if (!BASH_KEYS.includes(key)) {
+      errors.push(`bash.${key}: unknown key (valid: ${BASH_KEYS.join(", ")})`);
+    }
+  }
+
+  if (bash.enabled !== undefined && typeof bash.enabled !== "boolean") {
+    errors.push("bash.enabled: must be a boolean");
+  }
+
+  if (bash.maxFiles !== undefined) {
+    if (!Number.isInteger(bash.maxFiles) || bash.maxFiles < 1) {
+      errors.push("bash.maxFiles: must be a positive integer");
+    }
+  }
+
+  if (bash.writePatterns !== undefined) {
+    if (!Array.isArray(bash.writePatterns)) {
+      errors.push("bash.writePatterns: must be an array");
+      return errors;
+    }
+    const names = new Set();
+    for (let i = 0; i < bash.writePatterns.length; i++) {
+      const entry = bash.writePatterns[i];
+      const prefix = `bash.writePatterns[${i}]`;
+      if (!entry || typeof entry !== "object") {
+        errors.push(`${prefix}: must be an object`);
+        continue;
+      }
+      if (typeof entry.name !== "string" || entry.name === "") {
+        errors.push(`${prefix}.name: required non-empty string`);
+      } else if (names.has(entry.name)) {
+        errors.push(`${prefix}.name: duplicate name "${entry.name}"`);
+      } else {
+        names.add(entry.name);
+      }
+      if (typeof entry.match !== "string") {
+        errors.push(`${prefix}.match: required string`);
+      } else {
+        let compiled = true;
+        try {
+          new RegExp(entry.match);
+        } catch (e) {
+          compiled = false;
+          errors.push(`${prefix}.match: invalid regex - ${e.message}`);
+        }
+        if (compiled && hasNestedQuantifier(entry.match)) {
+          errors.push(`${prefix}.match: nested quantifier or repeated alternation risks catastrophic backtracking`);
+        }
       }
     }
   }
-  return result;
+
+  return errors;
+}
+
+/**
+ * Select the config that governs a resolved file root.
+ * worktree: the worktree's own config, else the session config.
+ * nested-repo: the nested repo's own config only (never the parent's).
+ * project (and anything else): the session config.
+ * @param {{root: string, kind: string}} resolved - Result of resolveFileRoot
+ * @param {object|null} sessionConfig - Config loaded for the session root
+ * @returns {object|null}
+ */
+export function resolveOwningConfig(resolved, sessionConfig) {
+  try {
+    if (resolved.kind === "worktree") {
+      return loadConfig(resolved.root).config || sessionConfig || null;
+    }
+    if (resolved.kind === "nested-repo") {
+      return loadConfig(resolved.root).config || null;
+    }
+    return sessionConfig || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the pass() status text for a check outcome.
+ * @param {{skippedReason: string|null, statusLine: string, results: object[]}} outcome
+ * @returns {string}
+ */
+export function formatOutcomeStatus(outcome) {
+  if (outcome.skippedReason) return outcome.skippedReason;
+  const skipMessages = (outcome.results || [])
+    .filter((r) => r.skipped)
+    .map((r) => r.skipMessage)
+    .filter(Boolean);
+  if (skipMessages.length === 0) return outcome.statusLine;
+  return `${outcome.statusLine} | ${skipMessages.join("; ")}`;
 }

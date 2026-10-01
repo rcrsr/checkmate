@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveCommand, formatCommandsBlock, checkFile } from "../scripts/lib/post-tool.mjs";
-import { resolveFileRoot, fileMatchesPaths, matchesExcludePattern } from "../scripts/lib/lib.mjs";
+import { resolveCommand, checkFile } from "../scripts/lib/post-tool.mjs";
+import { resolveFileRoot, fileMatchesPaths, matchesExcludePattern, formatCommandsBlock } from "../scripts/lib/lib.mjs";
 
 const scriptPath = fileURLToPath(new URL("../scripts/checkmate.mjs", import.meta.url));
 
